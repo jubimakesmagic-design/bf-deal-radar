@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from bf_deal_radar.llm import enrich_deals_with_llm
-from bf_deal_radar.models import AppConfig, LLMConfig, RawDeal, ScoredDeal
+from bf_deal_radar.models import AppConfig, LLMConfig, NaverShoppingConfig, RawDeal, ScoredDeal
 from bf_deal_radar.notifier.telegram import TelegramNotifier, build_telegram_payload
 from bf_deal_radar.security import (
     SecretRedactingFilter,
@@ -24,17 +24,22 @@ def test_config_and_notifier_repr_never_expose_secrets():
     chat_id = "-100999888777"
     gemini_key = "AIzaSyFakeGeminiKeyValue12345678901234"
     openai_key = "sk-FakeOpenAiSecretKey1234567890abcdef"
+    naver_id = "FakeNaverClientId99999"
+    naver_secret = "FakeNaverClientSecret88888"
 
     cfg = AppConfig(
         telegram_bot_token=token,
         telegram_chat_id=chat_id,
         llm=LLMConfig(gemini_api_key=gemini_key, openai_api_key=openai_key),
+        naver=NaverShoppingConfig(client_id=naver_id, client_secret=naver_secret),
     )
     cfg_repr = repr(cfg)
     assert token not in cfg_repr
     assert chat_id not in cfg_repr
     assert gemini_key not in cfg_repr
     assert openai_key not in cfg_repr
+    assert naver_id not in cfg_repr
+    assert naver_secret not in cfg_repr
 
     notifier = TelegramNotifier(token, chat_id)
     notifier_repr = repr(notifier)

@@ -612,3 +612,163 @@ def clean_kr_product_query(title: str) -> str:
     q = re.sub(r"(?:무료배송|무배|와우무료|네멤무료|배송비\s*별도|역대가|최저가|초특가|할인|특가)", " ", q)
     q = _WHITESPACE_RE.sub(" ", q).strip(" -:,|/()")
     return (q or title)[:55]
+
+
+_KR_PROMO_RANGE_TITLE_RE = re.compile(
+    r"(?:모음전|외\s*다수|외\s*\d+종|外\s*\d+종|단\s*하루|단하루|골라담기|BEST상품|특가전|전품목|\d[\d,]*원\s*~)"
+)
+
+_KR_QUERY_NOISE_RE = re.compile(
+    r"(?:체감가|카드할인|카드\s*할인|쿠폰가|쿠폰적용|쿠폰\s*적용|중복쿠폰|즉시할인|즉시\s*할인|"
+    r"네이버페이|네멤|와우할인|와우\s*할인|로켓배송|로켓직구|가격오류|가격\s*오류|오표기|가격실수|"
+    r"긴급|대란|반값|오늘만|타임특가|단독|공식정품|공식\s*정품|정품|국내정발|국내배송|빠른배송|당일발송|"
+    r"사은품|증정|적립|최대|선착순|한정수량|마감임박|무료|유배|직배|신한|삼성카드|국민카드|현대카드|토스페이)",
+    re.IGNORECASE,
+)
+
+_KR_BRAND_SYNONYMS: dict[str, str] = {
+    "삼성전자": "삼성",
+    "samsung": "삼성",
+    "lg전자": "lg",
+    "엘지": "lg",
+    "엘지전자": "lg",
+    "애플": "apple",
+    "소니": "sony",
+    "다이슨": "dyson",
+    "로보락": "roborock",
+    "닌텐도": "nintendo",
+    "보스": "bose",
+    "로지텍": "logitech",
+    "필립스": "philips",
+    "에어팟": "airpods",
+    "아이패드": "ipad",
+    "맥북": "macbook",
+    "아이폰": "iphone",
+    "갤럭시": "galaxy",
+    "나이키": "nike",
+    "아디다스": "adidas",
+    "아크테릭스": "arcteryx",
+    "파타고니아": "patagonia",
+    "레고": "lego",
+    "키크론": "keychron",
+    "앤커": "anker",
+    "유그린": "ugreen",
+    "샤오미": "xiaomi",
+    "브레빌": "breville",
+    "드롱기": "delonghi",
+    "네스프레소": "nespresso",
+    "가민": "garmin",
+}
+
+_KR_ACCESSORY_RE = re.compile(
+    r"(?:케이스|보호필름|강화유리|필름|스트랩|워치밴드|밴드|이어패드|이어팁|케이블|거치대|스탠드|"
+    r"파우치|커버|충전기|어댑터|젠더|허브|독|리필|교체용|교체|부품|칫솔모|브러쉬|브러시|필터|배터리|"
+    r"스킨|스티커|키캡|마우스패드|액세서리|악세사리|"
+    r"\b(?:case|cover|strap|band|cable|charger|adapter|film|earpad|eartip|refill|filter|pouch|stand|mount)\b)",
+    re.IGNORECASE,
+)
+
+_SPEC_STORAGE_RE = re.compile(r"(?<!\d)(\d{1,4})\s*(tb|gb)(?![a-z가-힣])", re.IGNORECASE)
+_SPEC_WEIGHT_RE = re.compile(r"(?<!\d)(\d{1,4}(?:\.\d{1,2})?)\s*(kg|g)(?![a-z가-힣])", re.IGNORECASE)
+_SPEC_VOLUME_RE = re.compile(r"(?<!\d)(\d{1,4}(?:\.\d{1,2})?)\s*(ml|l|리터)(?![a-z가-힣])", re.IGNORECASE)
+_SPEC_COUNT_RE = re.compile(
+    r"(?<!\d)(\d{1,4})\s*(?:개입|개|입|캔|병|팩|봉지|봉|매|정|캡슐|포|구|박스|box|세트|set|p|ea|롤|장|켤레|족|갑)(?![a-z가-힣])",
+    re.IGNORECASE,
+)
+_SPEC_MULT_COUNT_RE = re.compile(
+    r"[x×*]\s*(\d{1,3})(?!\s*(?:gb|tb|mb|ml|l|g|kg|mm|cm|hz|w|인치))(?![a-z0-9])",
+    re.IGNORECASE,
+)
+_SPEC_PLUS_PACK_RE = re.compile(r"(?<!\d)(\d\+\d)(?!\d)")
+_SPEC_SCREEN_RE = re.compile(r"(?<!\d)(\d{2}(?:\.\d)?)\s*(?:인치|형|inch|\")", re.IGNORECASE)
+
+
+def is_kr_promo_range_title(title: str) -> bool:
+    """Return True if title is a multi-item promo range/collection rather than a single product."""
+    return bool(_KR_PROMO_RANGE_TITLE_RE.search(title or ""))
+
+
+def is_kr_accessory_title(title: str) -> bool:
+    """Return True if a Korean/mixed title describes an accessory, consumable refill, or spare part."""
+    return bool(_KR_ACCESSORY_RE.search(title or ""))
+
+
+def normalize_brand_token(token: str) -> str:
+    """Normalize major Korean/English brand synonyms into a single canonical token."""
+    low = token.lower()
+    return _KR_BRAND_SYNONYMS.get(low, low)
+
+
+def extract_product_specs(text: str) -> dict[str, set[str]]:
+    """Extract normalized quantitative specs (storage, weight, volume, count, plus_pack, screen)."""
+    cleaned = html.unescape(text or "")
+    # Remove prices and percentages before spec parsing so "12,000원" or "30%" don't interfere
+    cleaned = re.sub(r"\d{1,3}(?:,\d{3})+\s*원?", " ", cleaned)
+    cleaned = re.sub(r"\d+(?:\.\d+)?\s*만\s*\d*천?\s*원?", " ", cleaned)
+    cleaned = re.sub(r"\d{1,2}\s*%", " ", cleaned)
+
+    specs: dict[str, set[str]] = {
+        "storage": set(),
+        "weight": set(),
+        "volume": set(),
+        "count": set(),
+        "plus_pack": set(),
+        "screen": set(),
+    }
+
+    for m in _SPEC_STORAGE_RE.finditer(cleaned):
+        val = int(m.group(1))
+        unit = m.group(2).lower()
+        if unit == "tb" and 1 <= val <= 32:
+            specs["storage"].add(f"{val}tb")
+        elif unit == "gb" and 4 <= val <= 4096:
+            specs["storage"].add(f"{val}gb")
+
+    for m in _SPEC_WEIGHT_RE.finditer(cleaned):
+        val = float(m.group(1))
+        unit = m.group(2).lower()
+        grams = int(round(val * 1000)) if unit == "kg" else int(round(val))
+        if 1 <= grams <= 100_000:
+            specs["weight"].add(str(grams))
+
+    for m in _SPEC_VOLUME_RE.finditer(cleaned):
+        val = float(m.group(1))
+        unit = m.group(2).lower()
+        ml = int(round(val * 1000)) if unit in ("l", "리터") else int(round(val))
+        if 5 <= ml <= 50_000:
+            specs["volume"].add(str(ml))
+
+    for m in _SPEC_COUNT_RE.finditer(cleaned):
+        cnt = int(m.group(1))
+        if 1 <= cnt <= 2000:
+            specs["count"].add(str(cnt))
+
+    for m in _SPEC_MULT_COUNT_RE.finditer(cleaned):
+        cnt = int(m.group(1))
+        if 2 <= cnt <= 500:
+            specs["count"].add(str(cnt))
+
+    for m in _SPEC_PLUS_PACK_RE.finditer(cleaned):
+        specs["plus_pack"].add(m.group(1))
+
+    for m in _SPEC_SCREEN_RE.finditer(cleaned):
+        val = float(m.group(1))
+        if 10.0 <= val <= 110.0:
+            specs["screen"].add(f"{val:g}")
+
+    return specs
+
+
+def build_naver_search_query(title: str) -> str:
+    """Build a crisp Korean product query for Naver Shopping API price comparison."""
+    q = clean_kr_product_query(title)
+    # Strip remaining Korean price shorthands like '12.9만원', '₩25,990', '14.8발'
+    q = re.sub(r"₩\s*\d[\d,]*", " ", q)
+    q = re.sub(r"(?<!\d)\d{1,3}(?:\.\d{1,2})?\s*만\s*(?:\d{1,4}\s*천?)?\s*원?", " ", q)
+    q = re.sub(r"(?<!\d)\d{1,2}\.\d{1,2}\s*발\b", " ", q)
+    # Strip trailing '/무료', '/무배', '/유배', '(...)' pure promo brackets
+    q = re.sub(r"/\s*(?:무료|무배|유배|와우|네멤|배송비[^\s]*)\b", " ", q)
+    q = re.sub(r"\([^)]{0,20}(?:무료|무배|와우|네멤|쿠폰|카드|할인|특가|적립|배송)[^)]{0,20}\)", " ", q)
+    q = _KR_QUERY_NOISE_RE.sub(" ", q)
+    q = _WHITESPACE_RE.sub(" ", q).strip(" -:,|/()[]~!?")
+    return q[:55]

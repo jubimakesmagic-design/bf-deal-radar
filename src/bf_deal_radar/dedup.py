@@ -7,7 +7,13 @@ import re
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from bf_deal_radar.models import RawDeal, ScoredDeal
-from bf_deal_radar.parser import normalize_title_tokens
+from bf_deal_radar.parser import (
+    build_naver_search_query,
+    extract_product_specs,
+    is_kr_promo_range_title,
+    normalize_brand_token,
+    normalize_title_tokens,
+)
 
 _TRACKING_PARAMS = {
     "utm_source",
@@ -30,6 +36,49 @@ _TRACKING_PARAMS = {
 
 _SD_THREAD_RE = re.compile(r"slickdeals\.net/f/(\d+)", re.IGNORECASE)
 _DN_ID_RE = re.compile(r"dealnews\.com/(?:products/.+/)?(\d+)\.html", re.IGNORECASE)
+
+_SIG_SPEC_STRIP_RE = re.compile(
+    r"(?<!\d)\d{1,4}(?:\.\d{1,2})?\s*(?:tb|gb|kg|g|ml|l|리터|인치|형|inch|\"|"
+    r"개입|개|입|캔|병|팩|봉지|봉|매|정|캡슐|포|구|박스|box|세트|set|p|ea|롤|장|켤레|족|갑)(?![a-z가-힣])"
+    r"|[x×*]\s*\d{1,3}(?![a-z0-9])"
+    r"|(?<!\d)\d\+\d(?!\d)",
+    re.IGNORECASE,
+)
+
+_SIG_STOPWORDS = {
+    "무료",
+    "무배",
+    "무료배송",
+    "유배",
+    "와우",
+    "네멤",
+    "할인",
+    "특가",
+    "최저가",
+    "역대가",
+    "초특가",
+    "쿠폰",
+    "배송비",
+    "별도",
+    "정품",
+    "공식",
+    "국내",
+    "정발",
+    "단품",
+    "본품",
+    "새상품",
+    "미개봉",
+    "인기",
+    "추천",
+    "베스트",
+    "최신",
+    "신형",
+    "증정",
+    "사은품",
+    "적립",
+    "로켓",
+    "직구",
+}
 
 
 def canonicalize_url(url: str) -> str:
@@ -85,6 +134,58 @@ def make_canonical_key(deal: RawDeal) -> str:
     raw = " ".join(tokens[:10])
     digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
     return f"title:{digest}"
+
+
+def make_product_signature(title: str, region: str = "KR") -> str | None:
+    """Build a spec-aware normalized product signature for cross-post price-history matching.
+
+    Preserves capacity/weight/volume/count specs so distinct variants (e.g. 256GB vs 512GB,
+    12개 vs 24개) never collide, while normalizing mall/promo noise and major brand aliases.
+    Returns None for multi-item promo ranges or overly vague titles.
+    """
+    if not title or is_kr_promo_range_title(title):
+        return None
+
+    reg = (region or "KR").strip().lower()
+    cleaned = build_naver_search_query(title) if reg == "kr" else title
+    if not cleaned:
+        return None
+
+    specs = extract_product_specs(cleaned)
+    spec_tags: list[str] = []
+    for prefix, key in (
+        ("st", "storage"),
+        ("wt", "weight"),
+        ("vol", "volume"),
+        ("cnt", "count"),
+        ("pp", "plus_pack"),
+        ("sc", "screen"),
+    ):
+        for val in sorted(specs[key]):
+            spec_tags.append(f"{prefix}:{val}")
+
+    stripped = _SIG_SPEC_STRIP_RE.sub(" ", cleaned.lower())
+    raw_tokens = re.findall(r"[a-z0-9가-힣]+", stripped)
+    word_tokens: set[str] = set()
+    for tok in raw_tokens:
+        norm = normalize_brand_token(tok)
+        if len(norm) < 2 or norm in _SIG_STOPWORDS:
+            continue
+        word_tokens.add(norm)
+
+    if not word_tokens:
+        return None
+    # Require at least 2 meaningful tokens (or 1 word + spec tag) and at least one non-numeric word
+    if len(word_tokens) + len(spec_tags) < 2:
+        return None
+    if not any(not t.isdigit() for t in word_tokens):
+        return None
+
+    # Keep all spec tags + up to 8 sorted word tokens (prioritizing alphanumeric model codes)
+    ordered_words = sorted(word_tokens, key=lambda t: (0 if any(c.isdigit() for c in t) else 1, t))[:8]
+    parts = sorted(set(ordered_words)) + sorted(set(spec_tags))
+    digest = hashlib.sha1(" ".join(parts).encode("utf-8")).hexdigest()[:16]
+    return f"sig:{reg}:{digest}"
 
 
 def _prices_compatible(p1: float | None, p2: float | None) -> bool:
@@ -209,11 +310,13 @@ def _merge_cluster(cluster: list[RawDeal]) -> ScoredDeal:
             primary.description = item.description
 
     canonical_key = make_canonical_key(primary)
+    product_sig = make_product_signature(primary.title, primary.region) or ""
     return ScoredDeal(
         canonical_key=canonical_key,
         primary=primary,
         merged_sources=merged_sources,
         merged_urls=merged_urls,
+        product_signature=product_sig,
     )
 
 

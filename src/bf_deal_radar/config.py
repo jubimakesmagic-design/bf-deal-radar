@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from bf_deal_radar.models import AppConfig, FilterConfig, LLMConfig, SourceConfig
+from bf_deal_radar.models import AppConfig, FilterConfig, LLMConfig, NaverShoppingConfig, SourceConfig
 from bf_deal_radar.security import register_secrets
 
 
@@ -52,6 +52,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
     radar = data.get("radar", {}) or {}
     filters_raw = data.get("filters", {}) or {}
     llm_raw = data.get("llm", {}) or {}
+    naver_raw = data.get("naver_shopping", {}) or {}
     sources_raw = data.get("sources", []) or []
 
     sources = [
@@ -89,6 +90,16 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
     )
 
+    naver = NaverShoppingConfig(
+        enabled=bool(naver_raw.get("enabled", True)),
+        client_id=os.getenv("NAVER_CLIENT_ID", "").strip(),
+        client_secret=os.getenv("NAVER_CLIENT_SECRET", "").strip(),
+        max_calls_per_run=int(naver_raw.get("max_calls_per_run", 20)),
+        min_candidate_score=int(naver_raw.get("min_candidate_score", 18)),
+        cache_ttl_hours=int(naver_raw.get("cache_ttl_hours", 6)),
+        timeout_seconds=float(naver_raw.get("timeout_seconds", 6.0)),
+    )
+
     min_score_env = os.getenv("RADAR_MIN_SCORE", "").strip()
     max_alerts_env = os.getenv("RADAR_MAX_ALERTS", "").strip()
     rate_env = os.getenv("USD_KRW_RATE", "").strip()
@@ -100,6 +111,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
             int(max_alerts_env) if max_alerts_env else int(radar.get("max_alerts_per_run", 8))
         ),
         max_age_hours=int(radar.get("max_age_hours", 18)),
+        price_history_days=int(radar.get("price_history_days", 60)),
         min_price_usd=_parse_optional_float(radar.get("min_price_usd", 5.0)),
         max_price_usd=_parse_optional_float(radar.get("max_price_usd")),
         min_price_krw=_parse_optional_int(radar.get("min_price_krw", 3000)),
@@ -112,11 +124,14 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
         sources=sources,
         filters=filters,
         llm=llm,
+        naver=naver,
     )
     register_secrets(
         cfg.telegram_bot_token,
         cfg.telegram_chat_id,
         cfg.llm.gemini_api_key,
         cfg.llm.openai_api_key,
+        cfg.naver.client_id,
+        cfg.naver.client_secret,
     )
     return cfg

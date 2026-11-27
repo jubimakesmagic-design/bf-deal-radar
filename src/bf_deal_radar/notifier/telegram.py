@@ -20,9 +20,11 @@ logger = logging.getLogger(__name__)
 def _score_badge(deal: ScoredDeal) -> str:
     if deal.is_price_error:
         return "🚨🚨🚨"
+    if deal.is_price_drop and deal.market_baseline and deal.market_baseline.drop_pct >= 45.0:
+        return "🚨🚨"
     if deal.score >= 90:
         return "🔥🔥🔥"
-    if deal.is_watch_match or deal.score >= 80:
+    if deal.is_price_drop or deal.is_watch_match or deal.score >= 80:
         return "🔥🔥"
     if deal.score >= 70:
         return "🔥"
@@ -34,8 +36,12 @@ def _tier_label(deal: ScoredDeal) -> str:
         return "가격오류 속보"
     if deal.llm and deal.llm.verdict:
         return deal.llm.verdict
+    if deal.is_price_drop and deal.market_baseline and deal.market_baseline.drop_pct >= 45.0:
+        return "기준가 급락 · 가격오류 의심"
     if deal.score >= 90:
         return "역대급 초특가 대란"
+    if deal.is_price_drop:
+        return "기준가 대비 급락 포착"
     if deal.score >= 80 or deal.is_historical_low:
         return "찐할인 역대가급"
     if deal.score >= 70:
@@ -69,10 +75,14 @@ def format_telegram_html(deal: ScoredDeal) -> str:
     if deal.is_domestic_kr:
         if p.price_krw is not None:
             price_parts.append(f"💰 <b>{p.price_krw:,}원</b>")
+        bl = deal.market_baseline
+        if deal.is_price_drop and bl is not None and p.price_krw is not None and bl.reference_price_krw > p.price_krw:
+            price_parts.append(f"<s>기준가 {bl.reference_price_krw:,}원</s>")
+            price_parts.append(f"📉 <b>-{bl.drop_pct:.0f}% 급락</b>")
+        elif p.discount_pct is not None:
+            price_parts.append(f"🔥 <b>{p.discount_pct:.0f}% 할인</b>")
         if p.shipping_label:
             price_parts.append(f"🚚 {html.escape(p.shipping_label)}")
-        if p.discount_pct is not None:
-            price_parts.append(f"🔥 <b>{p.discount_pct:.0f}% 할인</b>")
     else:
         if p.price_usd is not None:
             if deal.customs:

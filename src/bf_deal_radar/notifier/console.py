@@ -12,16 +12,24 @@ class ConsoleNotifier:
         p = deal.primary
         region = "🇰🇷국내" if deal.is_domestic_kr else "🇺🇸직구"
         err_tag = " [🚨가격오류]" if deal.is_price_error else ""
+        drop_tag = " [📉급락]" if deal.is_price_drop else ""
         watch_tag = " [🚨WATCH]" if deal.is_watch_match else ""
 
         print("=" * 76)
-        print(f"[{region} {deal.score:3d}점]{err_tag}{watch_tag} ({deal.category_label_ko}) {p.title}")
+        print(f"[{region} {deal.score:3d}점]{err_tag}{drop_tag}{watch_tag} ({deal.category_label_ko}) {p.title}")
 
         if deal.is_domestic_kr:
             price_str = f"{p.price_krw:,}원" if p.price_krw is not None else "가격 원글 확인"
             ship_str = f" | {p.shipping_label}" if p.shipping_label else ""
             disc_str = f" | {p.discount_pct:.0f}% 할인" if p.discount_pct else ""
             print(f"  가격: {price_str}{ship_str}{disc_str}")
+            if deal.market_baseline is not None:
+                bl = deal.market_baseline
+                src_label = "네이버 시세" if bl.source == "naver_shopping" else "누적 시세"
+                print(
+                    f"  기준가: {bl.reference_price_krw:,}원 "
+                    f"(대비 {-bl.drop_pct:+.0f}%, {src_label} {bl.sample_count}건)"
+                )
             print(
                 f"  반응: 추천 {p.thumb_score or 0} · 댓글 {p.comment_count or 0} · 조회 {p.view_count or 0:,}"
             )

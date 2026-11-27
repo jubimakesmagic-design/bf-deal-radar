@@ -16,6 +16,9 @@ radar:
   # 이 시간(시간 단위) 이내 올라온 최신 딜만 알림 대상
   max_age_hours: 18
 
+  # 내부 가격 이력(KRW/USD 기준가 누적) 보관 일수
+  price_history_days: 60
+
   # 가격 상한/하한 필터 (USD / KRW, null이면 제한 없음)
   min_price_usd: 5.0
   max_price_usd: null
@@ -726,3 +729,15 @@ llm:
   # 1차 점수 통과 딜 중 최대 몇 개까지 LLM 요약 호출할지
   max_calls_per_run: 8
   timeout_seconds: 15
+
+# 선택: 네이버 쇼핑 검색 API 실시간 시세 기준가 비교 (무료 일 25,000건)
+# NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 환경변수가 설정된 경우에만 동작하며,
+# 미설정 시에도 자체 60일 KRW 시세 누적(price_history) 기반 급락 감지는 기본 동작합니다.
+naver_shopping:
+  enabled: true
+  # 1회 실행당 신규 시세 조회 최대 호출 수 (동일 상품은 SQLite에 6시간 캐싱되어 쿼터 미소모)
+  max_calls_per_run: 20
+  # 1차 점수 이 이상인 국내 가격 보유 딜을 대상으로 실시간 시세 검증
+  min_candidate_score: 18
+  cache_ttl_hours: 6
+  timeout_seconds: 6.0

@@ -62,6 +62,11 @@ def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
         "is_tech": deal.is_tech_category,
         "is_historical_low": deal.is_historical_low,
         "is_price_error": deal.is_price_error,
+        "is_price_drop": deal.is_price_drop,
+        "baseline_price_krw": deal.market_baseline.reference_price_krw if deal.market_baseline else None,
+        "baseline_drop_pct": deal.market_baseline.drop_pct if deal.market_baseline else None,
+        "baseline_source": deal.market_baseline.source if deal.market_baseline else None,
+        "baseline_sample_count": deal.market_baseline.sample_count if deal.market_baseline else None,
         "is_cross_source": len(deal.merged_sources) >= 2,
         "coupon_code": p.coupon_code,
         "condition_warning": deal.condition_warning,
@@ -259,6 +264,7 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
         <button class="tab active" data-filter="all">전체</button>
         <button class="tab" data-filter="kr">🇰🇷 국내핫딜</button>
         <button class="tab" data-filter="us">🇺🇸 해외직구</button>
+        <button class="tab" data-filter="drop">📉 급락 포착</button>
         <button class="tab" data-filter="watch">🚨 관심 키워드</button>
         <button class="tab" data-filter="tech">💻 IT/가전</button>
         <button class="tab" data-filter="dutyfree">✅ 면세 ($200 이하)</button>
@@ -299,6 +305,7 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
       const stats = document.getElementById("stats-bar");
       const krCnt = DATA.deals.filter(isKr).length;
       const usCnt = DATA.deals.length - krCnt;
+      const dropCnt = DATA.deals.filter(d => d.is_price_drop).length;
       const watchCnt = DATA.deals.filter(d => d.is_watch_match).length;
       const atlCnt = DATA.deals.filter(d => d.is_historical_low).length;
       stats.replaceChildren();
@@ -306,6 +313,7 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
         `총 ${DATA.deals.length}건`,
         `🇰🇷 국내 ${krCnt}건`,
         `🇺🇸 직구 ${usCnt}건`,
+        `📉 급락 ${dropCnt}건`,
         `🚨 관심 ${watchCnt}건`,
         `🏆 역대가 ${atlCnt}건`,
       ].forEach(txt => {
@@ -337,6 +345,7 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
       let list = DATA.deals.filter(d => {
         if (currentFilter === "kr" && !isKr(d)) return false;
         if (currentFilter === "us" && isKr(d)) return false;
+        if (currentFilter === "drop" && !d.is_price_drop) return false;
         if (currentFilter === "watch" && !d.is_watch_match) return false;
         if (currentFilter === "tech" && !d.is_tech) return false;
         if (currentFilter === "dutyfree" && d.is_duty_free !== true) return false;
@@ -349,11 +358,16 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
       });
 
       list.sort((a, b) => {
-        if (sort === "discount") return (b.discount_pct || 0) - (a.discount_pct || 0) || b.score - a.score;
+        if (sort === "discount") {
+          const da = Math.max(a.discount_pct || 0, a.is_price_drop ? (a.baseline_drop_pct || 0) : 0);
+          const db = Math.max(b.discount_pct || 0, b.is_price_drop ? (b.baseline_drop_pct || 0) : 0);
+          return db - da || b.score - a.score;
+        }
         if (sort === "price_asc") return effectiveKrw(a) - effectiveKrw(b) || b.score - a.score;
         return (
           (b.is_price_error ? 1 : 0) - (a.is_price_error ? 1 : 0) ||
           b.score - a.score ||
+          (b.is_price_drop ? 1 : 0) - (a.is_price_drop ? 1 : 0) ||
           (b.is_historical_low ? 1 : 0) - (a.is_historical_low ? 1 : 0) ||
           (b.is_watch_match ? 1 : 0) - (a.is_watch_match ? 1 : 0)
         );
@@ -378,7 +392,9 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
         top.className = "card-top";
         const sc = document.createElement("span");
         sc.className = "score" + (d.is_price_error || d.score >= 85 ? " high" : "");
-        const prefix = d.is_price_error ? "🚨 가격오류 · " : (d.is_watch_match ? "🚨 " : "");
+        const prefix = d.is_price_error
+          ? "🚨 가격오류 · "
+          : (d.is_price_drop ? "📉 급락 · " : (d.is_watch_match ? "🚨 " : ""));
         sc.textContent = `${domestic ? "🇰🇷" : "🇺🇸"} ${prefix}${d.score}점`;
         const meta = document.createElement("span");
         meta.className = "meta";
@@ -397,7 +413,12 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
         if (domestic) {
           pr.textContent = d.price_krw != null ? `${d.price_krw.toLocaleString("ko-KR")}원` : "가격 원글 확인";
           priceRow.appendChild(pr);
-          if (d.price_usd != null) {
+          if (d.is_price_drop && d.baseline_price_krw != null && d.price_krw != null && d.baseline_price_krw > d.price_krw) {
+            const baseEl = document.createElement("s");
+            baseEl.className = "krw";
+            baseEl.textContent = `기준가 ${d.baseline_price_krw.toLocaleString("ko-KR")}원`;
+            priceRow.appendChild(baseEl);
+          } else if (d.price_usd != null) {
             const usdSub = document.createElement("span");
             usdSub.className = "krw";
             usdSub.textContent = `($${d.price_usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
@@ -413,7 +434,12 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
             priceRow.appendChild(krw);
           }
         }
-        if (d.discount_pct != null) {
+        if (domestic && d.is_price_drop && d.baseline_drop_pct != null) {
+          const off = document.createElement("span");
+          off.className = "off";
+          off.textContent = `기준가 대비 -${Math.round(d.baseline_drop_pct)}%`;
+          priceRow.appendChild(off);
+        } else if (d.discount_pct != null) {
           const off = document.createElement("span");
           off.className = "off";
           off.textContent = domestic ? `${Math.round(d.discount_pct)}% 할인` : `${Math.round(d.discount_pct)}% OFF`;

@@ -44,11 +44,27 @@ class LLMConfig:
 
 
 @dataclass(slots=True)
+class NaverShoppingConfig:
+    enabled: bool = True
+    client_id: str = field(default="", repr=False)
+    client_secret: str = field(default="", repr=False)
+    max_calls_per_run: int = 20
+    min_candidate_score: int = 18
+    cache_ttl_hours: int = 6
+    timeout_seconds: float = 6.0
+
+    @property
+    def is_configured(self) -> bool:
+        return self.enabled and bool(self.client_id and self.client_secret)
+
+
+@dataclass(slots=True)
 class AppConfig:
     min_score: int = 70
     kr_min_score: int = 70
     max_alerts_per_run: int = 8
     max_age_hours: int = 18
+    price_history_days: int = 60
     min_price_usd: float | None = 5.0
     max_price_usd: float | None = None
     min_price_krw: int | None = 3000
@@ -61,6 +77,7 @@ class AppConfig:
     sources: list[SourceConfig] = field(default_factory=list)
     filters: FilterConfig = field(default_factory=FilterConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    naver: NaverShoppingConfig = field(default_factory=NaverShoppingConfig)
 
 
 @dataclass(slots=True)
@@ -115,6 +132,18 @@ class CustomsEstimate:
 
 
 @dataclass(slots=True)
+class MarketBaseline:
+    """Baseline reference price from Naver Shopping API or internal KRW price history."""
+
+    source: str  # "naver_shopping" or "price_history"
+    reference_price_krw: int
+    sample_count: int
+    drop_pct: float  # positive = cheaper than baseline, negative = more expensive
+    lowest_price_krw: int | None = None
+    query: str = ""
+
+
+@dataclass(slots=True)
 class LLMEnrichment:
     """Optional AI-generated Korean summary and real-discount sanity check."""
 
@@ -132,6 +161,7 @@ class ScoredDeal:
     primary: RawDeal
     merged_sources: list[str] = field(default_factory=list)
     merged_urls: dict[str, str] = field(default_factory=dict)
+    product_signature: str = ""
     score: int = 0
     is_watch_match: bool = False
     matched_watch_keywords: list[str] = field(default_factory=list)
@@ -139,12 +169,14 @@ class ScoredDeal:
     category_label_ko: str = "🛍️ 핫딜"
     is_historical_low: bool = False
     is_price_error: bool = False
+    is_price_drop: bool = False
     condition_warning: str | None = None
     voltage_warning: str | None = None
     bulky_warning: str | None = None
     membership_warning: str | None = None
     reasons: list[str] = field(default_factory=list)
     customs: CustomsEstimate | None = None
+    market_baseline: MarketBaseline | None = None
     llm: LLMEnrichment | None = None
     excluded_reason: str | None = None
 

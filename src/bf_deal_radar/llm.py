@@ -53,6 +53,14 @@ def _build_user_prompt(deal: ScoredDeal) -> str:
             f"Community/Rule Signals: {', '.join(deal.reasons) or 'None'}",
             f"Description: {p.description[:350]}",
         ]
+        if deal.market_baseline is not None:
+            bl = deal.market_baseline
+            src_name = "Naver Shopping" if bl.source == "naver_shopping" else "60-day History"
+            lines.insert(
+                6,
+                f"Market Baseline ({src_name}, {bl.sample_count} samples): "
+                f"{bl.reference_price_krw:,}원 (drop {bl.drop_pct:+.1f}%)",
+            )
     else:
         lines = [
             "Region: US (Overseas direct import)",

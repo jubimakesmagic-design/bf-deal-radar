@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from bf_deal_radar.exchange import estimate_customs
-from bf_deal_radar.models import AppConfig, ScoredDeal
+from bf_deal_radar.models import AppConfig, MarketBaseline, ScoredDeal
 
 _ALL_TIME_LOW_RE = re.compile(
     r"\b(?:all[\s-]time\s+low|lowest\s+price\s+ever|lowest\s+ever|record\s+low|"
@@ -312,8 +312,20 @@ def _verify_and_score_kr(
     deal: ScoredDeal,
     config: AppConfig,
     now: datetime,
+    kr_history_baseline: MarketBaseline | None = None,
+    kr_market_baseline: MarketBaseline | None = None,
 ) -> ScoredDeal:
     """Evaluate a Korean domestic hot deal with strict pillar caps (70+ genuine deals, 90+ rare mega-deals)."""
+    # Reset mutable verification fields cleanly so Pass-2 rescoring after market lookup is idempotent
+    deal.excluded_reason = None
+    deal.is_watch_match = False
+    deal.matched_watch_keywords = []
+    deal.is_historical_low = False
+    deal.is_price_error = False
+    deal.is_price_drop = False
+    deal.market_baseline = None
+    deal.reasons = []
+
     primary = deal.primary
     title_lower = primary.title.lower()
     full_text = f"{primary.title}\n{primary.description}\n{primary.category or ''}".lower()
@@ -472,13 +484,106 @@ def _verify_and_score_kr(
             disc = min(44, disc + 4)
             reasons.append("🏆 역대가/초특가 키워드")
 
+    # 7b. Live Naver Shopping market baseline & internal 60-day KRW price-history drop detection
+    naver_drop = False
+    hist_drop = False
+    market_penalty = 0
+
+    if (
+        kr_market_baseline is not None
+        and primary.price_krw is not None
+        and kr_market_baseline.reference_price_krw > 0
+        and kr_market_baseline.sample_count >= 3
+    ):
+        bl = kr_market_baseline
+        beats_lowest = (
+            bl.lowest_price_krw is None
+            or primary.price_krw <= bl.lowest_price_krw * 0.95
+        )
+        if beats_lowest and bl.drop_pct >= 12.0:
+            naver_drop = True
+            deal.is_price_drop = True
+            deal.market_baseline = bl
+            drop = bl.drop_pct
+            if drop >= 45.0 and bl.sample_count >= 4:
+                deal.is_historical_low = True
+                disc = max(disc, 55)
+                reasons.insert(
+                    0,
+                    f"🚨 네이버 시세({bl.reference_price_krw:,}원, {bl.sample_count}건) 대비 {drop:.0f}% 급락 (가격오류 의심)",
+                )
+            elif drop >= 30.0:
+                deal.is_historical_low = True
+                disc = max(disc, 51)
+                reasons.insert(
+                    0,
+                    f"📉 네이버 시세({bl.reference_price_krw:,}원, {bl.sample_count}건) 대비 {drop:.0f}% 급락",
+                )
+            elif drop >= 20.0:
+                deal.is_historical_low = True
+                disc = max(disc, 36)
+                reasons.append(
+                    f"📉 네이버 시세({bl.reference_price_krw:,}원, {bl.sample_count}건) 대비 {drop:.0f}% 저렴"
+                )
+            else:
+                disc = max(disc, 20)
+                reasons.append(
+                    f"💸 네이버 시세({bl.reference_price_krw:,}원, {bl.sample_count}건) 대비 {drop:.0f}% 저렴"
+                )
+        elif not is_price_error and bl.drop_pct <= -5.0:
+            deal.market_baseline = bl
+            market_penalty = -18
+            reasons.append(f"⚠️ 네이버 시세({bl.reference_price_krw:,}원) 대비 가격 메리트 낮음")
+
+    if (
+        kr_history_baseline is not None
+        and primary.price_krw is not None
+        and kr_history_baseline.reference_price_krw > 0
+        and kr_history_baseline.sample_count >= 1
+    ):
+        hb = kr_history_baseline
+        beats_hist_low = (
+            hb.lowest_price_krw is None
+            or primary.price_krw <= hb.lowest_price_krw * 0.95
+        )
+        if beats_hist_low and hb.drop_pct >= 15.0:
+            hist_drop = True
+            deal.is_price_drop = True
+            if deal.market_baseline is None:
+                deal.market_baseline = hb
+            drop = hb.drop_pct
+            if drop >= 35.0 and hb.sample_count >= 3:
+                deal.is_historical_low = True
+                disc = max(disc, 51)
+                reasons.insert(
+                    0,
+                    f"🚨 최근 {config.price_history_days}일 시세({hb.reference_price_krw:,}원, {hb.sample_count}건) 대비 {drop:.0f}% 급락",
+                )
+            elif drop >= 25.0 and hb.sample_count >= 2:
+                deal.is_historical_low = True
+                disc = max(disc, 38)
+                reasons.append(
+                    f"📉 최근 {config.price_history_days}일 시세({hb.reference_price_krw:,}원, {hb.sample_count}건) 대비 {drop:.0f}% 급락"
+                )
+            else:
+                if drop >= 20.0:
+                    deal.is_historical_low = True
+                disc = max(disc, 26)
+                reasons.append(
+                    f"📉 이전 포착 시세({hb.reference_price_krw:,}원) 대비 {drop:.0f}% 하락"
+                )
+
+    # Dual confirmation when both live Naver market AND internal 60-day history independently confirm a drop
+    if naver_drop and hist_drop:
+        disc = min(58, disc + 5)
+
     if is_price_error:
         deal.is_price_error = True
         deal.is_historical_low = True
         disc = max(disc, 58)
         reasons.insert(0, "🚨 가격오류/오표기 속보")
 
-    score += disc
+    score += disc + market_penalty
 
     # 8. Trusted domestic mall & free shipping baseline (+3 / +2)
     if primary.retailer in _KR_TRUSTED_MALLS:
@@ -521,11 +626,19 @@ def verify_and_score(
     usd_krw_rate: float,
     now: datetime | None = None,
     previous_low_usd: float | None = None,
+    kr_history_baseline: MarketBaseline | None = None,
+    kr_market_baseline: MarketBaseline | None = None,
 ) -> ScoredDeal:
     """Evaluate whether a deal (US overseas or KR domestic) is a genuine big discount."""
     now = now or datetime.now(timezone.utc)
     if deal.is_domestic_kr:
-        return _verify_and_score_kr(deal, config=config, now=now)
+        return _verify_and_score_kr(
+            deal,
+            config=config,
+            now=now,
+            kr_history_baseline=kr_history_baseline,
+            kr_market_baseline=kr_market_baseline,
+        )
     primary = deal.primary
     title_lower = primary.title.lower()
     title_and_cat = f"{primary.title} {primary.category or ''}".lower()

@@ -18,6 +18,8 @@ _SECRET_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"),
     # Authorization Bearer header values
     re.compile(r"(Bearer\s+)[^\s\"']+", re.IGNORECASE),
+    # Naver Open API secret header values
+    re.compile(r"(X-Naver-Client-Secret['\"]?\s*[:=]\s*['\"]?)[^\s\"',}]+", re.IGNORECASE),
 ]
 
 _RUNTIME_SECRETS: set[str] = set()
