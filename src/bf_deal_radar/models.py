@@ -44,22 +44,9 @@ class LLMConfig:
 
 
 @dataclass(slots=True)
-class NaverConfig:
-    enabled: bool = True
-    max_calls_per_run: int = 10
-    timeout_seconds: int = 8
-    client_id: str = field(default="", repr=False)
-    client_secret: str = field(default="", repr=False)
-
-    @property
-    def is_configured(self) -> bool:
-        return self.enabled and bool(self.client_id and self.client_secret)
-
-
-@dataclass(slots=True)
 class AppConfig:
     min_score: int = 66
-    kr_min_score: int = 62
+    kr_min_score: int = 56
     max_alerts_per_run: int = 8
     max_age_hours: int = 18
     min_price_usd: float | None = 5.0
@@ -74,7 +61,6 @@ class AppConfig:
     sources: list[SourceConfig] = field(default_factory=list)
     filters: FilterConfig = field(default_factory=FilterConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
-    naver: NaverConfig = field(default_factory=NaverConfig)
 
 
 @dataclass(slots=True)
@@ -129,17 +115,6 @@ class CustomsEstimate:
 
 
 @dataclass(slots=True)
-class NaverMarketCheck:
-    """Optional Naver Shopping live market comparison for Korean domestic deals."""
-
-    market_lowest_krw: int
-    market_median_krw: int
-    savings_vs_median_pct: float
-    sample_count: int
-    verdict_label: str = ""
-
-
-@dataclass(slots=True)
 class LLMEnrichment:
     """Optional AI-generated Korean summary and real-discount sanity check."""
 
@@ -169,7 +144,6 @@ class ScoredDeal:
     membership_warning: str | None = None
     reasons: list[str] = field(default_factory=list)
     customs: CustomsEstimate | None = None
-    naver_market: NaverMarketCheck | None = None
     llm: LLMEnrichment | None = None
     excluded_reason: str | None = None
 

@@ -12,7 +12,6 @@ from bf_deal_radar.dedup import cluster_deals
 from bf_deal_radar.exchange import fetch_usd_krw_rate
 from bf_deal_radar.llm import enrich_deals_with_llm
 from bf_deal_radar.models import AppConfig, ScoredDeal
-from bf_deal_radar.naver import enrich_kr_deals_with_naver
 from bf_deal_radar.notifier.console import ConsoleNotifier
 from bf_deal_radar.notifier.telegram import TelegramNotifier
 from bf_deal_radar.sources.korean import resolve_korean_buy_urls
@@ -131,16 +130,6 @@ def run_once(
         all_qualified.sort(key=rank_key, reverse=True)
         candidates.sort(key=rank_key, reverse=True)
         report.all_qualified_deals = all_qualified
-
-        # Optional: cross-check top Korean candidates against live Naver Shopping market prices
-        if candidates and not seed_only and config.naver.is_configured:
-            enrich_kr_deals_with_naver(candidates, config.naver)
-            candidates = [
-                d
-                for d in candidates
-                if not d.is_domestic_kr or d.score >= (min_score_override if min_score_override is not None else config.kr_min_score)
-            ]
-            candidates.sort(key=rank_key, reverse=True)
 
         # Avoid first-run notification flood while still showing top deals immediately
         effective_limit = min(max_alerts, 5) if (is_first_run and not dry_run and limit_override is None) else max_alerts

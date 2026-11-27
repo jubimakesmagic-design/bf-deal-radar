@@ -5,11 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-import httpx
-
 from bf_deal_radar.dedup import cluster_deals
-from bf_deal_radar.models import AppConfig, FilterConfig, NaverConfig, RawDeal, ScoredDeal, SourceConfig
-from bf_deal_radar.naver import enrich_kr_deals_with_naver
+from bf_deal_radar.models import AppConfig, FilterConfig, RawDeal, ScoredDeal, SourceConfig
 from bf_deal_radar.notifier.telegram import build_telegram_payload, format_telegram_html
 from bf_deal_radar.parser import (
     clean_kr_product_query,
@@ -204,51 +201,6 @@ def test_korean_scoring_cross_community_boost_and_spam_exclusion():
     )
     verify_and_score(spam, cfg, usd_krw_rate=1350.0, now=now)
     assert spam.excluded_reason is not None
-
-
-def test_naver_market_enrichment_boosts_genuine_discount_and_hides_secrets(monkeypatch):
-    def _fake_get(self, url, params=None, headers=None):
-        req = httpx.Request("GET", url)
-        return httpx.Response(
-            200,
-            request=req,
-            json={
-                "items": [
-                    {"lprice": "58000"},
-                    {"lprice": "62000"},
-                    {"lprice": "64000"},
-                    {"lprice": "65000"},
-                    {"lprice": "69000"},
-                    {"lprice": "72000"},
-                ]
-            },
-        )
-
-    monkeypatch.setattr(httpx.Client, "get", _fake_get)
-    deal = ScoredDeal(
-        canonical_key="url:anker",
-        primary=RawDeal(
-            source_id="clien",
-            source_name="클리앙 알뜰구매",
-            source_type="clien",
-            source_base_score=20,
-            category_hint="상품정보",
-            external_id="c9",
-            title="[하이마트] 앤커 파워뱅크 20000mAh 87W 43,610원/무배",
-            url="https://www.clien.net/service/board/jirum/9",
-            region="KR",
-            price_krw=43610,
-        ),
-        score=65,
-    )
-    cfg = NaverConfig(enabled=True, client_id="SecretNaverId123", client_secret="SecretNaverPass456")
-    assert "SecretNaverId123" not in repr(cfg)
-    assert "SecretNaverPass456" not in repr(cfg)
-
-    enrich_kr_deals_with_naver([deal], cfg)
-    assert deal.naver_market is not None
-    assert deal.naver_market.savings_vs_median_pct >= 30.0
-    assert deal.score == 85
 
 
 def test_storage_krw_price_drop_renotify(tmp_path: Path):

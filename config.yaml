@@ -351,12 +351,6 @@ filters:
     - "used"
     - "scratch & dent"
 
-# 선택: 네이버 쇼핑 검색 API 시세 자동 대조 (NAVER_CLIENT_ID/SECRET 설정 시 자동 동작)
-naver:
-  enabled: true
-  max_calls_per_run: 10
-  timeout_seconds: 8
-
 # 선택: LLM 한국어 요약 & 찐할인 검증 (API 키가 있을 때만 자동 동작)
 llm:
   enabled: true
