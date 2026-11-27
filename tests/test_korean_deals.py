@@ -19,7 +19,14 @@ from bf_deal_radar.parser import (
     extract_krw_price,
     is_kr_sold_out,
 )
-from bf_deal_radar.sources.korean import KST, parse_clien_html, parse_dealbada_html, parse_ruliweb_html
+from bf_deal_radar.sources.korean import (
+    KST,
+    extract_buy_url_from_post_html,
+    parse_clien_html,
+    parse_dealbada_html,
+    parse_ruliweb_html,
+    unwrap_redirect_url,
+)
 from bf_deal_radar.storage import DealStorage
 from bf_deal_radar.verifier import verify_and_score
 
@@ -269,3 +276,51 @@ def test_storage_krw_price_drop_renotify(tmp_path: Path):
         # Drops 15% (20,000 -> 17,000) -> re-notify!
         d1.primary.price_krw = 17000
         assert store.should_notify(d1) is True
+
+
+def test_extract_direct_buy_url_from_ruliweb_and_clien_posts():
+    ruliweb_post = (
+        '<div class="source_url box_line_with_shadow"><span class="text_bar">출처 : </span>'
+        '<a href="https://web.ruliweb.com/link.php?ol=https%3A%2F%2Fwww.coupang.com%2Fvp%2Fproducts%2F877132&amp;bbs=1020">link</a></div>'
+    )
+    assert (
+        extract_buy_url_from_post_html(ruliweb_post, "ruliweb")
+        == "https://www.coupang.com/vp/products/877132"
+    )
+
+    clien_post = (
+        '<div class="outlink"><a href="https://click.linkprice.com/click.php?m=himart&amp;tu='
+        'https%3A%2F%2Fm.e-himart.co.kr%2Fapp%2Fgoods%2FgoodsDetail%3FgoodsNo%3D0071730449">go</a></div>'
+    )
+    assert (
+        extract_buy_url_from_post_html(clien_post, "clien")
+        == "https://m.e-himart.co.kr/app/goods/goodsDetail?goodsNo=0071730449"
+    )
+
+    # Unsafe javascript: inside redirector is ignored
+    assert unwrap_redirect_url("https://web.ruliweb.com/link.php?ol=javascript%3Aalert(1)").startswith("https://")
+
+    # Telegram payload includes both Direct Buy + Original Post buttons when buy_url is set
+    deal = ScoredDeal(
+        canonical_key="url:kr-buy",
+        primary=RawDeal(
+            source_id="ruliweb",
+            source_name="루리웹 핫딜",
+            source_type="ruliweb",
+            source_base_score=22,
+            category_hint="음식",
+            external_id="1",
+            title="[쿠팡] 오레오 스틱 (10,720원/무료)",
+            url="https://bbs.ruliweb.com/market/board/1020/read/109421",
+            buy_url="https://www.coupang.com/vp/products/877132",
+            region="KR",
+            price_krw=10720,
+        ),
+        score=75,
+    )
+    payload = build_telegram_payload("12345", deal)
+    row1 = payload["reply_markup"]["inline_keyboard"][0]
+    assert row1[0]["text"] == "🛒 바로 구매하기"
+    assert row1[0]["url"] == "https://www.coupang.com/vp/products/877132"
+    assert row1[1]["text"] == "💬 원글/댓글"
+    assert row1[1]["url"] == "https://bbs.ruliweb.com/market/board/1020/read/109421"

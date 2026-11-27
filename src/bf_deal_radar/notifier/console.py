@@ -48,7 +48,9 @@ class ConsoleNotifier:
             print(f"  근거: {' / '.join(deal.reasons[:4])}")
         if deal.llm and deal.llm.summary_ko:
             print(f"  AI요약({deal.llm.verdict}): {deal.llm.summary_ko}")
-        print(f"  링크: {p.url}")
+        if p.buy_url:
+            print(f"  구매: {p.buy_url}")
+        print(f"  원글: {p.url}")
         if deal.camel_url:
             print(f"  CCC:  {deal.camel_url}")
         return True

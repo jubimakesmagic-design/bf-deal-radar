@@ -15,6 +15,7 @@ from bf_deal_radar.models import AppConfig, ScoredDeal
 from bf_deal_radar.naver import enrich_kr_deals_with_naver
 from bf_deal_radar.notifier.console import ConsoleNotifier
 from bf_deal_radar.notifier.telegram import TelegramNotifier
+from bf_deal_radar.sources.korean import resolve_korean_buy_urls
 from bf_deal_radar.sources.rss import fetch_all_sources, fetch_all_sources_with_cache
 from bf_deal_radar.storage import DealStorage
 from bf_deal_radar.verifier import verify_and_score
@@ -145,6 +146,9 @@ def run_once(
         effective_limit = min(max_alerts, 5) if (is_first_run and not dry_run and limit_override is None) else max_alerts
         to_send = candidates[:effective_limit]
         overflow = candidates[effective_limit:]
+
+        if to_send and not seed_only:
+            asyncio.run(resolve_korean_buy_urls(to_send))
 
         if to_send and not seed_only and config.llm.is_configured:
             enrich_deals_with_llm(to_send, config.llm)

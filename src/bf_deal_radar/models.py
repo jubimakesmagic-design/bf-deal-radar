@@ -89,6 +89,7 @@ class RawDeal:
     external_id: str
     title: str
     url: str
+    buy_url: str | None = None
     region: str = "US"
     description: str = ""
     published_at: datetime | None = None

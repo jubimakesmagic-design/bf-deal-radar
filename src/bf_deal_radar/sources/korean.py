@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
+import logging
 import re
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, unquote, urlparse
 
-from bf_deal_radar.models import RawDeal, SourceConfig
+import httpx
+
+from bf_deal_radar.models import RawDeal, ScoredDeal, SourceConfig
 from bf_deal_radar.parser import (
+    extract_asin,
     extract_kr_discount_pct,
     extract_kr_retailer,
     extract_kr_shipping,
@@ -15,7 +21,9 @@ from bf_deal_radar.parser import (
     is_kr_sold_out,
     strip_html,
 )
+from bf_deal_radar.security import is_safe_http_url
 
+logger = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))
 
 
@@ -318,3 +326,140 @@ def parse_korean_board_html(
     if source.type == "dealbada":
         return parse_dealbada_html(html_text, source, now_kst=now_kst)
     return []
+
+
+_IGNORED_BUY_HOSTS = (
+    "ruliweb.com",
+    "clien.net",
+    "dealbada.com",
+    "daumcdn.net",
+    "imgur.com",
+    "w3.org",
+    "schema.org",
+    "googleapis.com",
+    "gstatic.com",
+    "googletagmanager.com",
+    "googlesyndication.com",
+    "doubleclick.net",
+    "facebook.com",
+    "twitter.com",
+    "x.com",
+    "youtube.com",
+    "youtu.be",
+    "instagram.com",
+    "t.me",
+)
+
+_SHOPPING_URL_RE = re.compile(
+    r'href=["\'](https?://[^"\'<>\s]+)["\']',
+    re.IGNORECASE,
+)
+
+
+def _is_external_shop_url(url: str) -> bool:
+    if not is_safe_http_url(url):
+        return False
+    host = (urlparse(url).hostname or "").lower()
+    if not host:
+        return False
+    if any(host == dom or host.endswith(f".{dom}") for dom in _IGNORED_BUY_HOSTS):
+        return False
+    # Skip obvious static image links
+    path = urlparse(url).path.lower()
+    if path.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".css", ".js")):
+        return False
+    return True
+
+
+def unwrap_redirect_url(url: str) -> str:
+    """Unwrap Ruliweb (ol=) and LinkPrice/affiliate (tu=, url=, u=) redirector URLs cleanly."""
+    current = html.unescape(url).strip()
+    for _ in range(3):
+        parsed = urlparse(current)
+        qs = parse_qs(parsed.query)
+        next_url = None
+        for param in ("ol", "tu", "target_url", "redirect_url", "url", "u"):
+            vals = qs.get(param)
+            if vals:
+                cand = unquote(vals[0]).strip()
+                if is_safe_http_url(cand):
+                    next_url = cand
+                    break
+        if next_url and next_url != current:
+            current = next_url
+        else:
+            break
+    return current
+
+
+def extract_buy_url_from_post_html(html_text: str, source_type: str) -> str | None:
+    """Extract the primary direct shopping URL from a Korean hot deal post page."""
+    candidates: list[str] = []
+
+    if source_type == "ruliweb":
+        # 1. Ruliweb dedicated '출처 :' box (holds the primary deal URL wrapped in web.ruliweb.com/link.php?ol=...)
+        src_box = re.search(r'class="source_url[^"]*"[^>]*>(.*?)</(?:div|td|p|tr)>', html_text, re.S | re.I)
+        if src_box:
+            candidates.extend(_SHOPPING_URL_RE.findall(src_box.group(1)))
+        # 2. Article body fallback
+        body = re.search(r'class="view_content[^"]*"[^>]*>(.*?)</article>', html_text, re.S | re.I)
+        if body:
+            candidates.extend(_SHOPPING_URL_RE.findall(body.group(1)))
+
+    elif source_type == "clien":
+        # 1. Clien dedicated outlink block
+        outlink = re.search(r'class="outlink"[^>]*>(.*?)</div>', html_text, re.S | re.I)
+        if outlink:
+            candidates.extend(_SHOPPING_URL_RE.findall(outlink.group(1)))
+        # 2. Clien post body fallback
+        body = re.search(r'class="post_article"[^>]*>(.*?)</article>', html_text, re.S | re.I)
+        if body:
+            candidates.extend(_SHOPPING_URL_RE.findall(body.group(1)))
+
+    elif source_type == "dealbada":
+        # 1. Dealbada link section & post body
+        link_sec = re.search(r'id="bo_v_link"[^>]*>(.*?)</section>', html_text, re.S | re.I)
+        if link_sec:
+            candidates.extend(_SHOPPING_URL_RE.findall(link_sec.group(1)))
+        body = re.search(r'id="bo_v_con"[^>]*>(.*?)</div>', html_text, re.S | re.I)
+        if body:
+            candidates.extend(_SHOPPING_URL_RE.findall(body.group(1)))
+
+    for raw in candidates:
+        unwrapped = unwrap_redirect_url(raw)
+        if _is_external_shop_url(unwrapped):
+            return unwrapped
+    return None
+
+
+async def _resolve_single_buy_url(client: httpx.AsyncClient, deal: ScoredDeal) -> None:
+    p = deal.primary
+    if not deal.is_domestic_kr or p.buy_url or not is_safe_http_url(p.url):
+        return
+    try:
+        resp = await client.get(
+            p.url,
+            headers={
+                "User-Agent": "BFDealRadar/0.5 (+https://github.com/jubimakesmagic-design/bf-deal-radar)",
+                "Accept-Language": "ko-KR,ko;q=0.9",
+            },
+            follow_redirects=True,
+        )
+        if resp.status_code != 200 or len(resp.content) > 2 * 1024 * 1024:
+            return
+        buy_url = extract_buy_url_from_post_html(resp.text, p.source_type)
+        if buy_url:
+            p.buy_url = buy_url
+            if p.asin is None:
+                p.asin = extract_asin(buy_url)
+    except Exception as exc:
+        logger.debug("Direct buy_url lookup skipped for %s: %s", p.url, type(exc).__name__)
+
+
+async def resolve_korean_buy_urls(deals: list[ScoredDeal], timeout: float = 6.0) -> None:
+    """Concurrently resolve direct shopping URLs for the final set of outgoing Korean deals."""
+    targets = [d for d in deals if d.is_domestic_kr and not d.primary.buy_url]
+    if not targets:
+        return
+    async with httpx.AsyncClient(timeout=timeout, max_redirects=4) as client:
+        await asyncio.gather(*(_resolve_single_buy_url(client, d) for d in targets))

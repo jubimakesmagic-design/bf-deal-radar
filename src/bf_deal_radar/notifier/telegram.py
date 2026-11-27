@@ -139,21 +139,28 @@ def format_telegram_html(deal: ScoredDeal) -> str:
 
 def build_telegram_payload(chat_id: str, deal: ScoredDeal) -> dict:
     """Build Telegram Bot API sendMessage JSON payload with validated inline buttons."""
+    p = deal.primary
     row1: list[dict[str, str]] = []
-    if is_safe_http_url(deal.primary.url):
-        btn_label = "🛒 핫딜 원글 보기" if deal.is_domestic_kr else "🛒 딜 바로가기"
-        row1.append({"text": btn_label, "url": deal.primary.url})
+    if deal.is_domestic_kr:
+        if p.buy_url and is_safe_http_url(p.buy_url):
+            row1.append({"text": "🛒 바로 구매하기", "url": p.buy_url})
+            if is_safe_http_url(p.url):
+                row1.append({"text": "💬 원글/댓글", "url": p.url})
+        elif is_safe_http_url(p.url):
+            row1.append({"text": "🛒 핫딜 원글 보기", "url": p.url})
+    elif is_safe_http_url(p.url):
+        row1.append({"text": "🛒 딜 바로가기", "url": p.url})
 
     row2: list[dict[str, str]] = []
     if deal.is_domestic_kr:
-        kr_q = quote_plus(clean_kr_product_query(deal.primary.title))
+        kr_q = quote_plus(clean_kr_product_query(p.title))
         row2.append({"text": "🔍 네이버 최저가 비교", "url": f"https://search.shopping.naver.com/search/all?query={kr_q}"})
         row2.append({"text": "📊 다나와 시세", "url": f"https://search.danawa.com/dsearch.php?query={kr_q}"})
     elif deal.camel_url and deal.keepa_url and is_safe_http_url(deal.camel_url) and is_safe_http_url(deal.keepa_url):
         row2.append({"text": "📈 가격추이 (CCC)", "url": deal.camel_url})
         row2.append({"text": "📊 Keepa 차트", "url": deal.keepa_url})
     else:
-        query = quote_plus(clean_product_query(deal.primary.title))
+        query = quote_plus(clean_product_query(p.title))
         row2.append({"text": "📈 가격추이 검색 (CCC)", "url": f"https://camelcamelcamel.com/search?sq={query}"})
 
     keyboard = [r for r in (row1, row2) if r]
