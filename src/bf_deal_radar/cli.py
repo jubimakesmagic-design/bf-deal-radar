@@ -200,7 +200,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_dash = sub.add_parser("dashboard", help="실시간 해외직구·국내 핫딜 정적 HTML/JSON 대시보드 생성")
     p_dash.add_argument("--output", default="docs", help="출력 디렉토리 (기본: docs)")
-    p_dash.add_argument("--min-score", type=int, default=70, help="표시할 최소 점수 (기본: 70)")
+    p_dash.add_argument("--min-score", type=int, default=65, help="표시할 최소 점수 (기본: 65)")
     p_dash.add_argument("--limit", type=int, default=50, help="최대 표시 딜 개수 (기본: 50)")
     p_dash.set_defaults(func=_cmd_dashboard)
 

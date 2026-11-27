@@ -218,10 +218,10 @@ def test_cluster_merges_downvotes_and_buy_url_and_config_defaults(tmp_path):
     assert clustered[0].primary.buy_url == "https://www.coupang.com/vp/products/99999"
     assert clustered[0].primary.downvote_count == 7
 
-    # Missing YAML falls back to uniform 70/70 thresholds
+    # Missing YAML falls back to uniform 65/65 thresholds
     cfg = load_config(config_path=tmp_path / "nonexistent.yaml", env_path=tmp_path / "no.env")
-    assert cfg.min_score == 70
-    assert cfg.kr_min_score == 70
+    assert cfg.min_score == 65
+    assert cfg.kr_min_score == 65
 
 
 def test_us_price_mistake_fast_track_and_guards():

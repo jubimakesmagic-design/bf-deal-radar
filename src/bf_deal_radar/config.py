@@ -105,8 +105,8 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
     rate_env = os.getenv("USD_KRW_RATE", "").strip()
 
     cfg = AppConfig(
-        min_score=int(min_score_env) if min_score_env else int(radar.get("min_score", 70)),
-        kr_min_score=int(min_score_env) if min_score_env else int(radar.get("kr_min_score", 70)),
+        min_score=int(min_score_env) if min_score_env else int(radar.get("min_score", 65)),
+        kr_min_score=int(min_score_env) if min_score_env else int(radar.get("kr_min_score", 65)),
         max_alerts_per_run=(
             int(max_alerts_env) if max_alerts_env else int(radar.get("max_alerts_per_run", 8))
         ),

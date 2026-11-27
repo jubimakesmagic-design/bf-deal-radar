@@ -60,8 +60,8 @@ class NaverShoppingConfig:
 
 @dataclass(slots=True)
 class AppConfig:
-    min_score: int = 70
-    kr_min_score: int = 70
+    min_score: int = 65
+    kr_min_score: int = 65
     max_alerts_per_run: int = 8
     max_age_hours: int = 18
     price_history_days: int = 60
