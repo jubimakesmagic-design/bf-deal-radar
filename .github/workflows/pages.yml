@@ -37,7 +37,7 @@ jobs:
         run: pip install -e .
 
       - name: Generate live Black Friday dashboard
-        run: bf-radar dashboard --output docs --min-score 55 --limit 60
+        run: bf-radar dashboard --output docs --min-score 70 --limit 60
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

@@ -12,6 +12,7 @@ import httpx
 from bf_deal_radar.models import ScoredDeal
 from bf_deal_radar.parser import clean_kr_product_query, clean_product_query
 from bf_deal_radar.security import is_safe_http_url, redact_secrets, register_secrets
+from bf_deal_radar.verifier import dedupe_source_labels
 
 logger = logging.getLogger(__name__)
 
@@ -91,12 +92,13 @@ def format_telegram_html(deal: ScoredDeal) -> str:
     if price_parts:
         lines.append("  |  ".join(price_parts))
 
-    # Retailer & Sources line
+    # Retailer & Sources line (dedupe repeated platform variants like 다사자 쿠팡 + 다사자 BEST)
     meta_parts: list[str] = []
     if p.retailer:
         meta_parts.append(f"🏪 {html.escape(p.retailer)}")
     if deal.merged_sources:
-        meta_parts.append(f"📡 {html.escape(', '.join(deal.merged_sources[:3]))}")
+        display_sources = dedupe_source_labels(deal.merged_sources)[:3]
+        meta_parts.append(f"📡 {html.escape(', '.join(display_sources))}")
     if meta_parts:
         lines.append("  |  ".join(meta_parts))
 
@@ -199,7 +201,7 @@ class TelegramNotifier:
         text = (
             "✅ <b>BF Deal Radar 연결 성공!</b>\n\n"
             f"💱 현재 적용 환율: <b>1 USD = {usd_krw_rate:,.1f}원</b>\n"
-            "📡 해외직구 블랙프라이데이 찐할인 포착 시 이 채팅으로 바로 알림이 도착합니다."
+            "📡 해외직구 · 국내 핫딜 찐할인 포착 시 이 채팅으로 바로 알림이 도착합니다."
         )
         payload = {
             "chat_id": self._chat_id,

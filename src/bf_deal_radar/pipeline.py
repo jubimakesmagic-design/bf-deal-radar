@@ -106,9 +106,8 @@ def run_once(
                 if min_score_override is not None
                 else (config.kr_min_score if deal.is_domestic_kr else config.min_score)
             )
-            # VIP watch-keyword matches still get a modest threshold break (-6) without burying stronger deals
-            effective_min = max(55, base_min - 6) if deal.is_watch_match else base_min
-            if deal.score < effective_min:
+            # Watch keywords already earn +8/+10 inside verifier; keep cutoff strictly uniform
+            if deal.score < base_min:
                 if not dry_run:
                     storage.record_deal(deal, notified=False)
                 continue

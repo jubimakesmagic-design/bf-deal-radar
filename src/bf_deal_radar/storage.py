@@ -88,6 +88,12 @@ class DealStorage:
     def update_feed_cache(self, source_id: str, etag: str | None, last_modified: str | None) -> None:
         if not etag and not last_modified:
             return
+        existing = self._conn.execute(
+            "SELECT etag, last_modified FROM feed_cache WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()
+        if existing and existing["etag"] == etag and existing["last_modified"] == last_modified:
+            return
         now_iso = datetime.now(timezone.utc).isoformat()
         with self._conn:
             self._conn.execute(
@@ -146,11 +152,62 @@ class DealStorage:
                 return True
         return False
 
+    def _latest_recorded_price(self, item_key: str) -> float | None:
+        row = self._conn.execute(
+            "SELECT price_usd FROM price_history WHERE item_key = ? ORDER BY id DESC LIMIT 1",
+            (item_key,),
+        ).fetchone()
+        if row and row["price_usd"] is not None:
+            return float(row["price_usd"])
+        return None
+
     def record_deal(self, deal: ScoredDeal, notified: bool) -> None:
-        """Upsert a deal into seen_deals and append its price to price_history."""
-        now_iso = datetime.now(timezone.utc).isoformat()
+        """Upsert a deal into seen_deals and record price_history only when the price changes."""
+        now_dt = datetime.now(timezone.utc)
+        now_iso = now_dt.isoformat()
         p = deal.primary
         existing = self.get_seen(deal.canonical_key)
+
+        needs_seen_write = existing is None
+        new_notified = 1 if notified else 0
+        new_notified_at = now_iso if notified else None
+        new_score = deal.score
+        stored_price = p.price_usd
+        stored_krw = p.price_krw
+
+        if existing is not None:
+            new_notified = 1 if (notified or existing["notified"]) else 0
+            new_notified_at = now_iso if notified else existing["notified_at"]
+            new_score = max(deal.score, int(existing["score"]))
+            stored_price = p.price_usd if notified else (
+                p.price_usd if existing["price_usd"] is None else existing["price_usd"]
+            )
+            stored_krw = p.price_krw if notified else (
+                p.price_krw if existing.get("price_krw") is None else existing.get("price_krw")
+            )
+            last_seen_stale = False
+            try:
+                prev_seen_dt = datetime.fromisoformat(str(existing["last_seen_at"]))
+                last_seen_stale = (now_dt - prev_seen_dt) >= timedelta(hours=6)
+            except ValueError:
+                last_seen_stale = True
+
+            needs_seen_write = (
+                notified
+                or new_notified != int(existing["notified"])
+                or new_score != int(existing["score"])
+                or stored_price != existing["price_usd"]
+                or stored_krw != existing.get("price_krw")
+                or last_seen_stale
+            )
+
+        needs_price_history = False
+        if p.price_usd is not None:
+            latest_price = self._latest_recorded_price(deal.canonical_key)
+            needs_price_history = latest_price is None or abs(latest_price - p.price_usd) >= 0.01
+
+        if not needs_seen_write and not needs_price_history:
+            return
 
         with self._conn:
             if existing is None:
@@ -166,24 +223,16 @@ class DealStorage:
                         p.asin,
                         p.title,
                         p.url,
-                        p.price_usd,
-                        p.price_krw,
-                        deal.score,
-                        1 if notified else 0,
+                        stored_price,
+                        stored_krw,
+                        new_score,
+                        new_notified,
                         now_iso,
                         now_iso,
-                        now_iso if notified else None,
+                        new_notified_at,
                     ),
                 )
-            else:
-                new_notified = 1 if (notified or existing["notified"]) else 0
-                new_notified_at = now_iso if notified else existing["notified_at"]
-                stored_price = p.price_usd if notified else (
-                    p.price_usd if existing["price_usd"] is None else existing["price_usd"]
-                )
-                stored_krw = p.price_krw if notified else (
-                    p.price_krw if existing.get("price_krw") is None else existing.get("price_krw")
-                )
+            elif needs_seen_write:
                 self._conn.execute(
                     """
                     UPDATE seen_deals
@@ -196,7 +245,7 @@ class DealStorage:
                         p.url,
                         stored_price,
                         stored_krw,
-                        max(deal.score, int(existing["score"])),
+                        new_score,
                         new_notified,
                         now_iso,
                         new_notified_at,
@@ -204,7 +253,7 @@ class DealStorage:
                     ),
                 )
 
-            if p.price_usd is not None:
+            if needs_price_history and p.price_usd is not None:
                 self._conn.execute(
                     """
                     INSERT INTO price_history (item_key, title, price_usd, retailer, source_id, recorded_at)

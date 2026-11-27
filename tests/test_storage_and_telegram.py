@@ -118,3 +118,80 @@ def test_pipeline_end_to_end_mocked(tmp_path: Path, monkeypatch):
     assert report.qualified_count == 1
     assert report.notified_count == 1
     assert 80 <= report.notified_deals[0].score < 90
+
+
+def test_storage_skips_redundant_writes_and_price_history_duplicates(tmp_path: Path):
+    import hashlib
+
+    db_file = tmp_path / "compact.db"
+    deal = _sample_deal(price=100.0)
+
+    with DealStorage(db_file) as store:
+        store.record_deal(deal, notified=False)
+        store.update_feed_cache("dealnews_elec", '"etag-1"', "Fri, 27 Nov 2026 05:00:00 GMT")
+    hash_before = hashlib.sha256(db_file.read_bytes()).hexdigest()
+
+    # Re-recording the exact same deal & cache headers must NOT bloat price_history or dirty the DB file
+    with DealStorage(db_file) as store:
+        store.record_deal(_sample_deal(price=100.0), notified=False)
+        store.update_feed_cache("dealnews_elec", '"etag-1"', "Fri, 27 Nov 2026 05:00:00 GMT")
+        hist_cnt = store._conn.execute("SELECT COUNT(*) FROM price_history").fetchone()[0]
+        assert hist_cnt == 1
+    hash_after = hashlib.sha256(db_file.read_bytes()).hexdigest()
+    assert hash_after == hash_before
+
+    # Actual price drop DOES insert a new price_history row
+    with DealStorage(db_file) as store:
+        store.record_deal(_sample_deal(price=85.0), notified=True)
+        hist_cnt = store._conn.execute("SELECT COUNT(*) FROM price_history").fetchone()[0]
+        assert hist_cnt == 2
+        assert store.get_previous_low_price("asin:B091FXQQMQ") == 85.0
+
+
+def test_strict_uniform_cutoff_and_clean_telegram_labels(tmp_path: Path, monkeypatch):
+    from bf_deal_radar.verifier import classify_korean_category
+
+    # Korean fresh fruit/produce categorization
+    assert classify_korean_category("[네이버] 사과 부사 고당도 꿀사과 2kg 4,900원", "사과") == "🍔 식품/간식"
+
+    # Duplicate platform variants collapse cleanly in Telegram message
+    kr_deal = _sample_deal(price=28.0)
+    kr_deal.merged_sources = ["다사자 네이버 핫딜", "다사자 BEST 핫딜", "어미새 인기정보", "핫구사·어미새"]
+    html_text = format_telegram_html(kr_deal)
+    assert "📡 다사자 네이버 핫딜, 어미새 인기정보" in html_text
+    assert "다사자 BEST 핫딜" not in html_text
+
+    # Watch-keyword deal below 70 must NOT bypass min_score=70
+    sub70_watch = RawDeal(
+        source_id="dealnews_elec",
+        source_name="DealNews Electronics",
+        source_type="dealnews",
+        source_base_score=14,
+        category_hint="IT/가전",
+        external_id="w-1",
+        title="Apple AirPods 4 for $119",
+        url="https://www.amazon.com/dp/B0SUB70TEST",
+        description="30% off at Amazon",
+        published_at=datetime.now(timezone.utc),
+        retailer="Amazon",
+        price_usd=119.0,
+        discount_pct=30.0,
+        asin="B0SUB70TEST",
+    )
+
+    async def _fake_fetch(_sources):
+        return [sub70_watch]
+
+    monkeypatch.setattr("bf_deal_radar.pipeline.fetch_all_sources", _fake_fetch)
+    monkeypatch.setattr("bf_deal_radar.pipeline.fetch_usd_krw_rate", lambda **_: 1350.0)
+
+    cfg = AppConfig(
+        min_score=70,
+        db_path=str(tmp_path / "strict.db"),
+        sources=[SourceConfig(id="dealnews_elec", name="DealNews Electronics", type="dealnews", url="https://x")],
+        filters=FilterConfig(watch_keywords=["airpods"]),
+    )
+    report = run_once(cfg, dry_run=True)
+    assert report.qualified_count == 0
+    assert report.notified_count == 0
+

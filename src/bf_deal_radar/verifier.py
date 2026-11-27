@@ -194,7 +194,7 @@ _CATEGORY_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:tent|camping|hiking|golf|dumbbell|treadmill|bicycle|bike|cooler|yeti)\b|캠핑|등산|텐트|골프|자전거|텀블러", re.I), "🏕️ 스포츠/캠핑"),
     (re.compile(r"\b(?:drill|dewalt|makita|milwaukee|wrench|toolbox|dash\s*cam|wiper|tire)\b|전동드릴|스크루|공구|블랙박스|와이퍼|세차", re.I), "🚗 자동차/공구"),
     (re.compile(r"\b(?:diaper|stroller|pet\s+food|cat\s+litter|dog\s+food)\b|기저귀|분유|물티슈|고양이|강아지|사료", re.I), "🍼 육아/반려동물"),
-    (re.compile(r"감귤|샤인머스켓|고구마|계란|우유|라면|우동|만두|떡갈비|닭갈비|곱창|갈비탕|과자|스낵|캔디|초코|젤리|콜라|탄산|음료|주스|매실|커피|원두|드립백|생수|햇반|식용유|고등어|삼겹살|목살|한돈|오리|치킨|피자|아이스크림|배스킨|베스킨|레몬즙|김치|연어|아보카도", re.I), "🍔 식품/간식"),
+    (re.compile(r"감귤|샤인머스켓|사과|꿀사과|키위|딸기|한라봉|천혜향|복숭아|수박|참외|오렌지|블루베리|체리|포도|망고|바나나|토마토|감자|양파|마늘|고구마|백미|현미|찹쌀|계란|우유|두유|요거트|치즈|버터|라면|우동|만두|떡갈비|닭갈비|닭가슴살|곱창|갈비탕|어묵|과자|스낵|캔디|초코|초콜릿|젤리|베이글|케이크|쿠키|견과|아몬드|호두|콜라|탄산|음료|주스|매실|커피|원두|드립백|생수|햇반|식용유|고등어|오징어|새우|갈치|전복|삼겹살|목살|한돈|한우|소고기|돼지고기|오리|치킨|피자|아이스크림|배스킨|베스킨|레몬즙|김치|연어|아보카도", re.I), "🍔 식품/간식"),
     (re.compile(r"\b(?:organizer|detergent|cookware|skillet|pan|towel|bedding)\b|세제|섬유유연제|휴지|화장지|주방세제|프라이팬|냄비|수건|도자기|그릇|타원볼|식기", re.I), "🏠 생활/주방"),
 ]
 
@@ -224,19 +224,34 @@ def classify_korean_category(title: str, category_hint: str) -> str:
     return f"🛍️ {category_hint}"
 
 
+def _platform_for_source(name: str) -> str:
+    lower = name.lower()
+    for key, label in _PLATFORM_MAP.items():
+        if key in lower:
+            return label
+    return name
+
+
 def _distinct_platforms(source_names: list[str]) -> list[str]:
     found: list[str] = []
     seen: set[str] = set()
     for name in source_names:
-        lower = name.lower()
-        platform = name
-        for key, label in _PLATFORM_MAP.items():
-            if key in lower:
-                platform = label
-                break
+        platform = _platform_for_source(name)
         if platform not in seen:
             seen.add(platform)
             found.append(platform)
+    return found
+
+
+def dedupe_source_labels(source_names: list[str]) -> list[str]:
+    """Keep at most one representative source label per platform for clean UI/Telegram display."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for name in source_names:
+        platform = _platform_for_source(name)
+        if platform not in seen:
+            seen.add(platform)
+            found.append(name)
     return found
 
 

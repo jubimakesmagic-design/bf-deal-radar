@@ -536,7 +536,7 @@ sources:
     category_hint: "IT/PC"
 
 filters:
-  # [VIP 관심 키워드] 여기에 적은 키워드가 포함된 딜은 점수 +25점 & 즉시 우선 알림!
+  # [VIP 관심 키워드] 여기에 적은 키워드가 포함된 딜은 가산점(+8~+10점) & 관심 키워드 배지 표시
   # 본인이 진짜 노리는 모델명/브랜드를 자유롭게 추가하세요.
   watch_keywords:
     - "macbook"
@@ -559,7 +559,7 @@ filters:
     - "steam deck"
     - "apple watch"
 
-  # [관심 카테고리 부스트 키워드] IT/PC 부품/가전 관련 딜에 가산점(+12점) 부여
+  # [관심 카테고리 부스트 키워드] 해외 IT/PC 부품/가전 관련 딜에 가산점(+6점) 부여
   boost_keywords:
     - "ssd"
     - "monitor"
