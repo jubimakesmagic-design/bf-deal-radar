@@ -2,8 +2,8 @@ name: Black Friday Deal Radar
 
 on:
   schedule:
-    # 매 5분마다 자동 수집 (Public 리포지토리는 GitHub Actions 무료 무제한)
-    - cron: "*/5 * * * *"
+    # 매 5분 자동 수집 (정각/:05/:10 트래픽 집중 시간대를 피해 비정각 분으로 스케줄링)
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -56,8 +56,6 @@ jobs:
           # 모든 시크릿과 사용자 입력은 셸 인라인 보간 대신 환경변수로 안전하게 전달
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
-          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
