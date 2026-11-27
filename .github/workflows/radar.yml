@@ -1,0 +1,73 @@
+name: Black Friday Deal Radar
+
+on:
+  schedule:
+    # 매 5분마다 자동 수집 (Public 리포지토리는 GitHub Actions 무료 무제한)
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "텔레그램 발송 없이 로그만 확인 (Dry Run)"
+        type: boolean
+        default: false
+      min_score:
+        description: "최소 알림 점수 덮어쓰기 (비워두면 config.yaml 기본값)"
+        type: string
+        default: ""
+
+concurrency:
+  group: bf-deal-radar-state
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install bf-deal-radar
+        run: pip install -e .
+
+      - name: Restore seen-deals SQLite DB
+        uses: actions/cache/restore@v4
+        with:
+          path: data/radar.db
+          key: bf-radar-db-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            bf-radar-db-
+
+      - name: Run Black Friday Deal Radar
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          RADAR_MIN_SCORE: ${{ inputs.min_score }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          elif [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "⚠️ TELEGRAM_BOT_TOKEN 또는 TELEGRAM_CHAT_ID Secrets가 아직 설정되지 않았습니다."
+            echo "   Settings > Secrets and variables > Actions 에서 두 값을 추가하면 텔레그램 알림이 시작됩니다."
+            echo "   이번 실행은 --dry-run 모드로 동작합니다."
+            ARGS="--dry-run"
+          fi
+          bf-radar run $ARGS
+
+      - name: Save seen-deals SQLite DB
+        if: always() && hashFiles('data/radar.db') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: data/radar.db
+          key: bf-radar-db-${{ github.run_id }}-${{ github.run_attempt }}

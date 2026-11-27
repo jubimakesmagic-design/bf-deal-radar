@@ -1,0 +1,239 @@
+# Black Friday & 해외직구 찐할인 레이더 설정
+# 원하는 키워드나 기준 점수를 자유롭게 수정하세요.
+
+radar:
+  # 이 점수(0~100) 이상인 딜만 텔레그램 알림 발송
+  # - 55~60: 인기 블프 핫딜 폭넓게 수신
+  # - 65~75: 진짜 할인 폭이 크거나 역대가 검증된 딜 위주 (추천)
+  # - 80+: 초특가 / 교차검증 역대가만 수신
+  min_score: 60
+
+  # 한 번 실행 시 최대 발송 알림 수 (첫 실행 시 알림 폭탄 방지)
+  max_alerts_per_run: 8
+
+  # 이 시간(시간 단위) 이내 올라온 최신 딜만 알림 대상
+  max_age_hours: 18
+
+  # 가격 상한/하한 필터 (USD, null이면 제한 없음)
+  min_price_usd: 5.0
+  max_price_usd: null
+
+  # 관부가세 면세 기준 (미국 목록통관 $200)
+  us_customs_threshold_usd: 200.0
+
+  # 실시간 환율 조회 실패 시 기본 환율 (KRW / 1 USD)
+  fallback_usd_krw: 1400.0
+
+  # SQLite 상태 저장 파일 경로
+  db_path: "data/radar.db"
+
+# 수집 소스 목록 (해외직구 인기 핫딜 + IT/PC/가전 특화)
+sources:
+  - name: "Slickdeals Frontpage"
+    id: "slickdeals_fp"
+    type: "slickdeals"
+    url: "https://slickdeals.net/newsearch.php?mode=frontpage&searcharea=deals&searchin=first&rss=1"
+    enabled: true
+    base_score: 24
+    category_hint: "인기 핫딜"
+
+  - name: "Slickdeals Popular"
+    id: "slickdeals_pop"
+    type: "slickdeals"
+    url: "https://slickdeals.net/newsearch.php?mode=popdeals&searcharea=deals&searchin=first&rss=1"
+    enabled: true
+    base_score: 14
+    category_hint: "인기 핫딜"
+
+  - name: "DealNews Electronics"
+    id: "dealnews_elec"
+    type: "dealnews"
+    url: "https://www.dealnews.com/c142/Electronics/?rss=1"
+    enabled: true
+    base_score: 14
+    category_hint: "IT/가전"
+
+  - name: "DealNews Computers"
+    id: "dealnews_comp"
+    type: "dealnews"
+    url: "https://www.dealnews.com/c39/Computers/?rss=1"
+    enabled: true
+    base_score: 14
+    category_hint: "IT/PC"
+
+  - name: "DealNews All Deals"
+    id: "dealnews_all"
+    type: "dealnews"
+    url: "https://www.dealnews.com/?rss=1"
+    enabled: true
+    base_score: 10
+    category_hint: "인기 핫딜"
+
+  # TechBargains는 클라우드 IP에서 403 제한될 수 있어 기본 비활성화 (로컬 실행 시 활성화 가능)
+  - name: "TechBargains"
+    id: "techbargains"
+    type: "techbargains"
+    url: "https://www.techbargains.com/rss.xml"
+    enabled: false
+    base_score: 14
+    category_hint: "IT/PC"
+
+  - name: "9to5Toys"
+    id: "9to5toys"
+    type: "9to5toys"
+    url: "https://9to5toys.com/feed/"
+    enabled: true
+    base_score: 14
+    category_hint: "IT/가전"
+
+  - name: "The Verge Deals"
+    id: "verge_deals"
+    type: "verge"
+    url: "https://www.theverge.com/rss/good-deals/index.xml"
+    enabled: true
+    base_score: 14
+    category_hint: "IT/가전"
+
+  # 로컬 PC / 홈서버 IP에서 실행 시 활성화 가능 (GitHub Actions IP는 Reddit 429 제한 가능)
+  - name: "Reddit r/buildapcsales"
+    id: "reddit_bapcs"
+    type: "reddit"
+    url: "https://www.reddit.com/r/buildapcsales/hot.rss"
+    enabled: false
+    base_score: 16
+    category_hint: "IT/PC"
+
+filters:
+  # [VIP 관심 키워드] 여기에 적은 키워드가 포함된 딜은 점수 +25점 & 즉시 우선 알림!
+  # 본인이 진짜 노리는 모델명/브랜드를 자유롭게 추가하세요.
+  watch_keywords:
+    - "macbook"
+    - "airpods"
+    - "ipad"
+    - "oled"
+    - "rtx 50"
+    - "rtx 40"
+    - "ryzen 7"
+    - "ryzen 9"
+    - "nvme"
+    - "4tb"
+    - "2tb"
+    - "wh-1000xm"
+    - "bose quietcomfort"
+    - "garmin"
+    - "dyson"
+    - "roborock"
+    - "sonos"
+    - "steam deck"
+    - "apple watch"
+
+  # [관심 카테고리 부스트 키워드] IT/PC 부품/가전 관련 딜에 가산점(+12점) 부여
+  boost_keywords:
+    - "ssd"
+    - "monitor"
+    - "laptop"
+    - "gpu"
+    - "graphics card"
+    - "cpu"
+    - "ram"
+    - "ddr5"
+    - "motherboard"
+    - "mini pc"
+    - "nas"
+    - "synology"
+    - "router"
+    - "wi-fi 7"
+    - "wifi 7"
+    - "headphone"
+    - "earbud"
+    - "speaker"
+    - "soundbar"
+    - "keyboard"
+    - "mouse"
+    - "logitech"
+    - "keychron"
+    - "anker"
+    - "ugreen"
+    - "charger"
+    - "power bank"
+    - "gan"
+    - "thunderbolt"
+    - "usb-c"
+    - "4k"
+    - "lg c"
+    - "lg g"
+    - "sony"
+    - "samsung"
+    - "apple"
+    - "airtag"
+    - "kindle"
+    - "coffee"
+    - "espresso"
+    - "breville"
+    - "de'longhi"
+    - "vacuum"
+    - "air purifier"
+    - "camera"
+    - "lens"
+    - "gopro"
+    - "dji"
+    - "insta360"
+    - "ps5"
+    - "playstation"
+    - "nintendo"
+
+  # [제외 키워드] 해외직구로 사기 어렵거나(미국 내수 서비스·오프라인 전용) 노이즈인 딜 자동 제외
+  exclude_keywords:
+    - "in-store only"
+    - "in store only"
+    - "local pickup only"
+    - "ymmv"
+    - "free trial"
+    - "sweepstakes"
+    - "magazine subscription"
+    - "doordash"
+    - "uber eats"
+    - "ubereats"
+    - "grubhub"
+    - "instacart"
+    - "verizon"
+    - "at&t"
+    - "t-mobile"
+    - "mint mobile"
+    - "visible wireless"
+    - "cricket wireless"
+    - "hulu"
+    - "disney+"
+    - "peacock"
+    - "paramount+"
+    - "espn+"
+    - "siriusxm"
+    - "sam's club membership"
+    - "costco membership"
+    - "bj's membership"
+    - "oil change"
+    - "tire installation"
+    - "car wash"
+    - "restaurant"
+    - "pizza"
+    - "burger"
+    - "starbucks"
+    - "dunkin"
+
+  # 리퍼/오픈박스/중고 상품 감점 (완전 제외하려면 위 exclude_keywords에 추가)
+  condition_penalty_keywords:
+    - "refurbished"
+    - "refurb"
+    - "renewed"
+    - "open box"
+    - "open-box"
+    - "pre-owned"
+    - "used"
+    - "scratch & dent"
+
+# 선택: LLM 한국어 요약 & 찐할인 검증 (API 키가 있을 때만 자동 동작)
+llm:
+  enabled: true
+  # 1차 점수 통과 딜 중 최대 몇 개까지 LLM 요약 호출할지
+  max_calls_per_run: 8
+  timeout_seconds: 15

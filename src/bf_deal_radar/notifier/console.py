@@ -1,0 +1,36 @@
+"""Pretty console notifier for dry-run / local debugging."""
+
+from __future__ import annotations
+
+from bf_deal_radar.models import ScoredDeal
+
+
+class ConsoleNotifier:
+    """Prints scored deals cleanly to stdout without sending Telegram messages."""
+
+    def send_deal(self, deal: ScoredDeal) -> bool:
+        p = deal.primary
+        price_str = f"${p.price_usd:,.2f}" if p.price_usd is not None else "가격 미표기"
+        krw_str = f" (~{deal.customs.price_krw:,}원)" if deal.customs else ""
+        disc_str = f" | {p.discount_pct:.0f}% OFF" if p.discount_pct else (
+            f" | ${p.savings_usd:,.0f} OFF" if p.savings_usd else ""
+        )
+        watch_tag = " [🚨WATCH]" if deal.is_watch_match else ""
+
+        print("=" * 76)
+        print(f"[{deal.score:3d}점]{watch_tag} {p.title}")
+        print(f"  가격: {price_str}{krw_str}{disc_str}")
+        if p.retailer or deal.merged_sources:
+            print(f"  판매처: {p.retailer or 'Unknown'} | 소스: {', '.join(deal.merged_sources)}")
+        if deal.customs:
+            print(f"  통관: {deal.customs.label}")
+        if p.coupon_code:
+            print(f"  쿠폰: {p.coupon_code}")
+        if deal.reasons:
+            print(f"  근거: {' / '.join(deal.reasons[:4])}")
+        if deal.llm and deal.llm.summary_ko:
+            print(f"  AI요약({deal.llm.verdict}): {deal.llm.summary_ko}")
+        print(f"  링크: {p.url}")
+        if deal.camel_url:
+            print(f"  CCC:  {deal.camel_url}")
+        return True
