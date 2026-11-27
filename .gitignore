@@ -9,8 +9,18 @@ build/
 venv/
 .pytest_cache/
 
-# Local secrets & runtime DB
+# Local secrets & credentials (NEVER commit!)
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets.*
+config.local.yaml
+config.secret.yaml
+
+# Runtime DB & logs
 data/*.db
 data/*.db-journal
 data/*.db-wal

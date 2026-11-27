@@ -92,3 +92,23 @@ docker compose up -d
 pip install -e ".[dev]"
 pytest -v
 ```
+
+---
+
+## 🔒 보안 가이드 (Public 리포지토리 주의사항)
+
+이 리포지토리는 **Public**이므로 모든 코드·커밋·GitHub Actions 로그가 외부에 공개됩니다. 아래 보안 안전장치가 기본 적용되어 있습니다.
+
+* **코드 레벨 시크릿 마스킹**:
+  * `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `GEMINI_API_KEY`, `OPENAI_API_KEY`는 `repr=False`로 설정되어 객체 출력이나 트레이스백에 노출되지 않습니다.
+  * 텔레그램 API 네트워크/HTTP 에러 발생 시에도 봇 토큰이 포함된 요청 URL이 로그에 찍히지 않도록 전역 `SecretRedactingFilter`와 에러 메시지 정제를 적용했습니다.
+  * 원격 LLM API 엔드포인트(`OPENAI_BASE_URL`)는 `https://`만 허용하여 API 키가 평문 HTTP로 전송되는 것을 차단합니다.
+* **GitHub Actions 최소 권한 & 인젝션 방지**:
+  * 워크플로우는 읽기 전용 권한(`permissions: contents: read`)과 `persist-credentials: false`로 실행됩니다.
+  * 시크릿은 `schedule` / `workflow_dispatch`에서만 주입되며 외부 PR(`pull_request`)에는 절대 전달되지 않습니다.
+  * 캐시 DB(`data/radar.db`)에는 공개 핫딜 URL·가격 정보만 저장되며, 토큰·Chat ID·개인정보는 저장하지 않습니다.
+* **직접 지키실 3가지 수칙**:
+  1. 실제 키는 **절대 `config.yaml`이나 `.env.example`에 적지 말고**, 로컬은 `.env`(Git 무시됨), 자동화는 **GitHub Secrets**에만 등록하세요.
+  2. 실수로 텔레그램 봇 토큰이 노출되었다면 즉시 **@BotFather → `/revoke`** 로 토큰을 재발급하세요.
+  3. 리포지토리 **Settings → Code security**에서 **Secret scanning**과 **Push protection**을 켜두면 실수로 키를 커밋해도 GitHub가 푸시를 자동 차단해 줍니다.
+

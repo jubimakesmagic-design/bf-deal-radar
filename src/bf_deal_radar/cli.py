@@ -11,6 +11,7 @@ from bf_deal_radar.config import load_config
 from bf_deal_radar.exchange import fetch_usd_krw_rate
 from bf_deal_radar.notifier.telegram import TelegramNotifier
 from bf_deal_radar.pipeline import run_once
+from bf_deal_radar.security import SecretRedactingFilter
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -20,6 +21,11 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    redactor = SecretRedactingFilter()
+    root_logger = logging.getLogger()
+    root_logger.addFilter(redactor)
+    for handler in root_logger.handlers:
+        handler.addFilter(redactor)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 

@@ -10,6 +10,7 @@ from urllib.parse import quote_plus
 import httpx
 
 from bf_deal_radar.models import ScoredDeal
+from bf_deal_radar.security import is_safe_http_url, redact_secrets, register_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -102,18 +103,20 @@ def format_telegram_html(deal: ScoredDeal) -> str:
 
 
 def build_telegram_payload(chat_id: str, deal: ScoredDeal) -> dict:
-    """Build Telegram Bot API sendMessage JSON payload with inline price-check buttons."""
-    row1 = [{"text": "🛒 딜 바로가기", "url": deal.primary.url}]
-    row2: list[dict[str, str]] = []
+    """Build Telegram Bot API sendMessage JSON payload with validated inline buttons."""
+    row1: list[dict[str, str]] = []
+    if is_safe_http_url(deal.primary.url):
+        row1.append({"text": "🛒 딜 바로가기", "url": deal.primary.url})
 
-    if deal.camel_url and deal.keepa_url:
+    row2: list[dict[str, str]] = []
+    if deal.camel_url and deal.keepa_url and is_safe_http_url(deal.camel_url) and is_safe_http_url(deal.keepa_url):
         row2.append({"text": "📈 가격추이 (CCC)", "url": deal.camel_url})
         row2.append({"text": "📊 Keepa 차트", "url": deal.keepa_url})
     else:
         query = quote_plus(deal.primary.title[:70])
         row2.append({"text": "📈 가격추이 검색 (CCC)", "url": f"https://camelcamelcamel.com/search?sq={query}"})
 
-    keyboard = [row1, row2] if row2 else [row1]
+    keyboard = [r for r in (row1, row2) if r]
 
     return {
         "chat_id": chat_id,
@@ -125,18 +128,22 @@ def build_telegram_payload(chat_id: str, deal: ScoredDeal) -> dict:
 
 
 class TelegramNotifier:
-    """Sends deal alerts via Telegram Bot API."""
+    """Sends deal alerts via Telegram Bot API without leaking bot credentials in logs."""
 
     def __init__(self, bot_token: str, chat_id: str, timeout: float = 12.0) -> None:
         if not bot_token or not chat_id:
             raise ValueError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set.")
-        self.bot_token = bot_token
-        self.chat_id = chat_id
+        self._bot_token = bot_token
+        self._chat_id = chat_id
         self.timeout = timeout
         self._api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        register_secrets(bot_token, chat_id)
+
+    def __repr__(self) -> str:
+        return "TelegramNotifier(bot_token='[REDACTED]', chat_id='[REDACTED]')"
 
     def send_deal(self, deal: ScoredDeal) -> bool:
-        payload = build_telegram_payload(self.chat_id, deal)
+        payload = build_telegram_payload(self._chat_id, deal)
         return self._post(payload)
 
     def send_test_message(self, usd_krw_rate: float) -> bool:
@@ -146,7 +153,7 @@ class TelegramNotifier:
             "📡 해외직구 블랙프라이데이 찐할인 포착 시 이 채팅으로 바로 알림이 도착합니다."
         )
         payload = {
-            "chat_id": self.chat_id,
+            "chat_id": self._chat_id,
             "text": text,
             "parse_mode": "HTML",
         }
@@ -162,16 +169,35 @@ class TelegramNotifier:
                         logger.warning("Telegram rate limited; sleeping %ds", retry_after)
                         time.sleep(min(retry_after, 10))
                         continue
-                    resp.raise_for_status()
+                    if resp.status_code >= 400:
+                        # Log only HTTP status and Telegram description — NEVER log request URL containing bot token
+                        err_desc = ""
+                        try:
+                            err_desc = str(resp.json().get("description", ""))
+                        except Exception:
+                            err_desc = resp.reason_phrase
+                        logger.error(
+                            "Telegram API rejected request (HTTP %d): %s",
+                            resp.status_code,
+                            redact_secrets(err_desc, (self._bot_token, self._chat_id)),
+                        )
+                        return False
                     data = resp.json()
                     if not data.get("ok"):
-                        logger.error("Telegram API error: %s", data)
+                        desc = redact_secrets(str(data.get("description", "unknown error")), (self._bot_token, self._chat_id))
+                        logger.error("Telegram API error: %s", desc)
                         return False
                     return True
-                except Exception as exc:
+                except httpx.RequestError as exc:
+                    # Scrub any URL/token from httpx transport errors
+                    safe_msg = redact_secrets(str(exc), (self._bot_token, self._chat_id))
                     if attempt == 0:
                         time.sleep(1.0)
                         continue
-                    logger.error("Failed to send Telegram alert: %s", exc)
+                    logger.error("Telegram network error (%s): %s", type(exc).__name__, safe_msg)
+                    return False
+                except Exception as exc:
+                    safe_msg = redact_secrets(str(exc), (self._bot_token, self._chat_id))
+                    logger.error("Unexpected Telegram error (%s): %s", type(exc).__name__, safe_msg)
                     return False
         return False

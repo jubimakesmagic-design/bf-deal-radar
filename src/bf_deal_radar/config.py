@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from bf_deal_radar.models import AppConfig, FilterConfig, LLMConfig, SourceConfig
+from bf_deal_radar.security import register_secrets
 
 
 def load_dotenv(env_path: str | Path = ".env") -> None:
@@ -84,7 +85,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
     max_alerts_env = os.getenv("RADAR_MAX_ALERTS", "").strip()
     rate_env = os.getenv("USD_KRW_RATE", "").strip()
 
-    return AppConfig(
+    cfg = AppConfig(
         min_score=int(min_score_env) if min_score_env else int(radar.get("min_score", 60)),
         max_alerts_per_run=(
             int(max_alerts_env) if max_alerts_env else int(radar.get("max_alerts_per_run", 8))
@@ -102,3 +103,10 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
         filters=filters,
         llm=llm,
     )
+    register_secrets(
+        cfg.telegram_bot_token,
+        cfg.telegram_chat_id,
+        cfg.llm.gemini_api_key,
+        cfg.llm.openai_api_key,
+    )
+    return cfg

@@ -15,6 +15,10 @@ on:
         type: string
         default: ""
 
+# 최소 권한 원칙: 리포지토리 읽기 전용 권한만 부여
+permissions:
+  contents: read
+
 concurrency:
   group: bf-deal-radar-state
   cancel-in-progress: false
@@ -26,6 +30,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # 작업 중 .git/config에 GITHUB_TOKEN을 남기지 않음
+          persist-credentials: false
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -46,6 +53,7 @@ jobs:
 
       - name: Run Black Friday Deal Radar
         env:
+          # 모든 시크릿과 사용자 입력은 셸 인라인 보간 대신 환경변수로 안전하게 전달
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -53,17 +61,19 @@ jobs:
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
           RADAR_MIN_SCORE: ${{ inputs.min_score }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          ARGS=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            ARGS="--dry-run"
-          elif [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+          set -euo pipefail
+          ARGS=()
+          if [ "${INPUT_DRY_RUN:-false}" = "true" ]; then
+            ARGS+=(--dry-run)
+          elif [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
             echo "⚠️ TELEGRAM_BOT_TOKEN 또는 TELEGRAM_CHAT_ID Secrets가 아직 설정되지 않았습니다."
             echo "   Settings > Secrets and variables > Actions 에서 두 값을 추가하면 텔레그램 알림이 시작됩니다."
             echo "   이번 실행은 --dry-run 모드로 동작합니다."
-            ARGS="--dry-run"
+            ARGS+=(--dry-run)
           fi
-          bf-radar run $ARGS
+          bf-radar run "${ARGS[@]}"
 
       - name: Save seen-deals SQLite DB
         if: always() && hashFiles('data/radar.db') != ''

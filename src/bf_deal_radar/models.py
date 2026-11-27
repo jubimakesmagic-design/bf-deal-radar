@@ -30,9 +30,9 @@ class LLMConfig:
     enabled: bool = True
     max_calls_per_run: int = 8
     timeout_seconds: int = 15
-    gemini_api_key: str = ""
+    gemini_api_key: str = field(default="", repr=False)
     gemini_model: str = "gemini-2.5-flash"
-    openai_api_key: str = ""
+    openai_api_key: str = field(default="", repr=False)
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
 
@@ -52,8 +52,8 @@ class AppConfig:
     fallback_usd_krw: float = 1400.0
     override_usd_krw: float | None = None
     db_path: str = "data/radar.db"
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
+    telegram_bot_token: str = field(default="", repr=False)
+    telegram_chat_id: str = field(default="", repr=False)
     sources: list[SourceConfig] = field(default_factory=list)
     filters: FilterConfig = field(default_factory=FilterConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)

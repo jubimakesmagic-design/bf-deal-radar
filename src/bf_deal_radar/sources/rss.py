@@ -20,6 +20,7 @@ from bf_deal_radar.parser import (
     extract_retailer,
     strip_html,
 )
+from bf_deal_radar.security import is_safe_http_url
 
 logger = logging.getLogger(__name__)
 
@@ -241,10 +242,17 @@ def parse_feed_xml(xml_bytes: bytes, source: SourceConfig) -> list[RawDeal]:
     return deals
 
 
+MAX_FEED_BYTES = 5 * 1024 * 1024  # 5 MB safety cap per RSS/Atom feed
+
+
 async def _fetch_single_source(
     client: httpx.AsyncClient,
     source: SourceConfig,
 ) -> list[RawDeal]:
+    if not is_safe_http_url(source.url):
+        logger.warning("Skipping source with unsafe URL scheme: %s", source.name)
+        return []
+
     headers = {
         "User-Agent": (
             "linux:bf-deal-radar:0.1"
@@ -256,11 +264,14 @@ async def _fetch_single_source(
     try:
         resp = await client.get(source.url, headers=headers, follow_redirects=True)
         resp.raise_for_status()
+        if len(resp.content) > MAX_FEED_BYTES:
+            logger.warning("Skipping oversized feed from %s (%d bytes)", source.name, len(resp.content))
+            return []
         deals = parse_feed_xml(resp.content, source)
         logger.info("Fetched %d deals from %s", len(deals), source.name)
         return deals
     except Exception as exc:
-        logger.warning("Failed to fetch %s (%s): %s", source.name, source.url, exc)
+        logger.warning("Failed to fetch %s (%s): %s", source.name, type(exc).__name__, exc)
         return []
 
 
@@ -274,7 +285,7 @@ async def fetch_all_sources(
         return []
 
     limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
-    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+    async with httpx.AsyncClient(timeout=timeout, limits=limits, max_redirects=5) as client:
         results = await asyncio.gather(
             *(_fetch_single_source(client, source) for source in enabled)
         )

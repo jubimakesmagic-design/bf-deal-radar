@@ -9,6 +9,7 @@ import re
 import httpx
 
 from bf_deal_radar.models import LLMConfig, LLMEnrichment, ScoredDeal
+from bf_deal_radar.security import is_safe_http_url, redact_secrets, register_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,9 @@ def _call_gemini(client: httpx.Client, config: LLMConfig, prompt: str) -> dict |
 
 
 def _call_openai(client: httpx.Client, config: LLMConfig, prompt: str) -> dict | None:
+    if not is_safe_http_url(config.openai_base_url, require_https=True, allow_localhost=True):
+        raise ValueError("OPENAI_BASE_URL must use https:// (or http://localhost for local servers)")
+
     url = f"{config.openai_base_url}/chat/completions"
     payload = {
         "model": config.openai_model,
@@ -106,6 +110,7 @@ def enrich_deals_with_llm(deals: list[ScoredDeal], config: LLMConfig) -> None:
     if not config.is_configured or not deals:
         return
 
+    register_secrets(config.gemini_api_key, config.openai_api_key)
     candidates = deals[: config.max_calls_per_run]
     with httpx.Client(timeout=config.timeout_seconds) as client:
         for deal in candidates:
@@ -128,4 +133,12 @@ def enrich_deals_with_llm(deals: list[ScoredDeal], config: LLMConfig) -> None:
                 )
                 deal.score = max(0, min(100, deal.score + adj))
             except Exception as exc:
-                logger.warning("LLM enrichment skipped for '%s': %s", deal.primary.title[:40], exc)
+                safe_err = redact_secrets(
+                    str(exc), (config.gemini_api_key, config.openai_api_key)
+                )
+                logger.warning(
+                    "LLM enrichment skipped for '%s' (%s): %s",
+                    deal.primary.title[:40],
+                    type(exc).__name__,
+                    safe_err,
+                )
