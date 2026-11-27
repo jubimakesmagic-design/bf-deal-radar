@@ -84,6 +84,9 @@ def format_telegram_html(deal: ScoredDeal) -> str:
     if deal.customs:
         lines.append(html.escape(deal.customs.label))
 
+    if deal.voltage_warning:
+        lines.append(html.escape(deal.voltage_warning))
+
     if p.coupon_code:
         lines.append(f"🎟️ 쿠폰 코드: <code>{html.escape(p.coupon_code)}</code>")
 
@@ -201,3 +204,49 @@ class TelegramNotifier:
                     logger.error("Unexpected Telegram error (%s): %s", type(exc).__name__, safe_msg)
                     return False
         return False
+
+
+def discover_chat_ids(bot_token: str, timeout: float = 10.0) -> list[dict[str, str]]:
+    """Safely discover Telegram chat IDs that recently messaged the bot (via getUpdates)."""
+    token = (bot_token or "").strip()
+    if not token:
+        raise ValueError("TELEGRAM_BOT_TOKEN must be provided.")
+    register_secrets(token)
+    url = f"https://api.telegram.org/bot{token}/getUpdates"
+
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(url)
+            if resp.status_code >= 400:
+                raise RuntimeError(f"Telegram API error (HTTP {resp.status_code})")
+            payload = resp.json()
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"Network error: {redact_secrets(str(exc), (token,))}") from None
+
+    if not payload.get("ok"):
+        desc = redact_secrets(str(payload.get("description", "unknown")), (token,))
+        raise RuntimeError(f"Telegram API returned error: {desc}")
+
+    chats: dict[str, dict[str, str]] = {}
+    for update in payload.get("result", []):
+        msg = (
+            update.get("message")
+            or update.get("channel_post")
+            or update.get("edited_message")
+            or {}
+        )
+        chat = msg.get("chat") or {}
+        cid = chat.get("id")
+        if cid is not None:
+            cid_str = str(cid)
+            chats[cid_str] = {
+                "chat_id": cid_str,
+                "type": str(chat.get("type", "unknown")),
+                "title": str(
+                    chat.get("title")
+                    or chat.get("username")
+                    or chat.get("first_name")
+                    or "Chat"
+                ),
+            }
+    return list(chats.values())

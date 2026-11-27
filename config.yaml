@@ -78,6 +78,22 @@ sources:
     base_score: 14
     category_hint: "IT/PC"
 
+  - name: "Slickdeals IT/PC Hot"
+    id: "slickdeals_tech"
+    type: "slickdeals"
+    url: "https://slickdeals.net/newsearch.php?q=ssd+OR+laptop+OR+monitor+OR+rtx+OR+macbook&searcharea=deals&searchin=first&rss=1"
+    enabled: true
+    base_score: 16
+    category_hint: "IT/PC"
+
+  - name: "DealNews Home & Garden"
+    id: "dealnews_home"
+    type: "dealnews"
+    url: "https://www.dealnews.com/c196/Home-Garden/?rss=1"
+    enabled: true
+    base_score: 12
+    category_hint: "가전/홈"
+
   - name: "9to5Toys"
     id: "9to5toys"
     type: "9to5toys"
@@ -93,6 +109,22 @@ sources:
     enabled: true
     base_score: 14
     category_hint: "IT/가전"
+
+  - name: "CNET Deals"
+    id: "cnet_deals"
+    type: "generic"
+    url: "https://www.cnet.com/rss/deals/"
+    enabled: true
+    base_score: 13
+    category_hint: "IT/가전"
+
+  - name: "IGN Deals"
+    id: "ign_deals"
+    type: "generic"
+    url: "https://www.ign.com/rss/articles/feed?tags=deals"
+    enabled: true
+    base_score: 13
+    category_hint: "IT/게이밍"
 
   # 로컬 PC / 홈서버 IP에서 실행 시 활성화 가능 (GitHub Actions IP는 Reddit 429 제한 가능)
   - name: "Reddit r/buildapcsales"

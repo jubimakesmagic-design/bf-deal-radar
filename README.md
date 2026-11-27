@@ -4,22 +4,21 @@
 
 ## ✨ 주요 기능
 
-* **빠른 해외직구 핫딜 수집 (공식 RSS/Atom 동시 수집)**
-  * **Slickdeals Frontpage & Popular** (커뮤니티 `Thumb Score` 추천수 자동 추출)
-  * **DealNews (Electronics / Computers / All)** (정가·에디터 `Staff Pick`·역대가 코멘트 추출)
-  * **TechBargains** (아마존 직접 링크 & ASIN 추출)
-  * **9to5Toys & The Verge Deals** (IT·Apple·가전 블랙프라이데이 역대가 속보)
-  * *(로컬 실행 시 `config.yaml`에서 `Reddit r/buildapcsales` 추가 활성화 가능)*
+* **빠른 해외직구 핫딜 수집 (11개 공식 RSS/Atom 동시 수집)**
+  * **Slickdeals Frontpage / Popular / IT·PC Hot** (커뮤니티 `Thumb Score` 추천수·쿠폰 코드 자동 추출)
+  * **DealNews (Electronics / Computers / Home & Garden / All)** (스토어 배너 제외, 개별 상품 정가·`Staff Pick`·역대가 코멘트 추출)
+  * **9to5Toys / The Verge Deals / CNET Deals / IGN Deals** (IT·Apple·가전·게이밍 블프 역대가 속보)
+  * *(로컬 실행 시 `config.yaml`에서 `Reddit r/buildapcsales`, `TechBargains` 추가 활성화 가능)*
 * **다중 시그널 "찐할인" 검증 엔진 (0~100점)**
-  * **할인율 정량 계산**: `% OFF`, `$X off`, `was $X` 자동 파싱
-  * **역대가(All-Time Low) 감지**: 역대 최저가·연중 최저가 언급 및 자체 가격 이력 DB 대비 추가 하락 포착
-  * **커뮤니티 검증**: Slickdeals Frontpage, 높은 추천수(`+50`, `+100`), DealNews Staff Pick 가산
-  * **교차 사이트 검증**: 동일 상품(ASIN 또는 상품명 매칭)이 2개 이상 해외 사이트에 동시 등장 시 중복 병합 + 점수 대폭 가산
+  * **할인율 정량 계산**: 실제 `% OFF`, `$X off`, `was $X` 파싱 (`Up to X% off` 마케팅 문구 제외)
+  * **역대가(All-Time Low) 감지**: 역대 최저가·최초 하락 언급 및 자체 가격 이력 DB 대비 10% 이상 추가 하락 포착
+  * **커뮤니티 & 교차 사이트 검증**: Slickdeals 추천수, DealNews Staff Pick, **2개 이상 해외 사이트 동시 등장 시 중복 병합 + 점수 대폭 가산**
   * **해외직구 노이즈 자동 차단**: 미국 통신사(Verizon/AT&T), 배달앱(DoorDash), 오프라인 전용(`In-Store Only`), 스트리밍 번들 등 직구 불가 딜 자동 제외
 * **한국인 해외직구 맞춤 정보**
-  * 실시간 `USD → KRW` 환율 자동 환산
-  * **미국 목록통관 \$200 면세/관부가세 초과 여부** 및 예상 총액 자동 계산
-  * 아마존 상품은 **CamelCamelCamel / Keepa 가격 변동 차트 버튼**을 텔레그램 메시지에 바로 첨부
+  * 실시간 `USD → KRW` 환율 자동 환산 + **미국 목록통관 \$200 면세/관부가세 초과 여부** 자동 계산
+  * **미국 110~120V 전압 주의 자동 표시** (에스프레소 머신·히터·청소기·TV 등 고전력 가전)
+  * 텔레그램 인라인 버튼으로 **CamelCamelCamel / Keepa 가격 변동 차트** 1클릭 이동
+  * **실시간 정적 웹 대시보드** (`bf-radar dashboard` + GitHub Pages 워크플로우 포함, 직구 관부가세 계산기 내장)
 * *(선택)* **LLM 한국어 요약 & AI 검증**: `GEMINI_API_KEY` (무료 티어) 또는 `OPENAI_API_KEY`를 넣으면 한국어 제목·1줄 요약·직구 주의사항까지 자동 추가 (미설정 시에도 100% 무료 규칙 엔진으로 정상 동작)
 
 ---
@@ -30,8 +29,10 @@ Public 리포지토리는 GitHub Actions가 무료이므로 **별도 서버 없�
 
 ### 1단계: 텔레그램 봇 생성 & Chat ID 확인
 1. 텔레그램에서 **[@BotFather](https://t.me/BotFather)** 에게 `/newbot` 을 보내 봇을 만들고 **`TELEGRAM_BOT_TOKEN`** 을 복사합니다.
-2. 방금 만든 봇 채팅방에 들어가 **시작(Start)** 버튼을 한 번 누릅니다.
-3. **[@userinfobot](https://t.me/userinfobot)** 에게 아무 메시지를 보내 본인의 숫자 **`Id`** (`TELEGRAM_CHAT_ID`)를 확인합니다.
+2. 방금 만든 봇 채팅방에 들어가 **시작(Start)** 버튼(또는 아무 메시지)을 한 번 보냅니다.
+3. 본인 **`TELEGRAM_CHAT_ID`** 확인 (둘 중 편한 방법 선택):
+   * **[@userinfobot](https://t.me/userinfobot)** 에게 메시지 보내서 숫자 `Id` 확인
+   * 또는 로컬에서 `TELEGRAM_BOT_TOKEN=<토큰> bf-radar discover-chat-id` 실행해 자동 조회!
 
 ### 2단계: GitHub Secrets 등록
 이 리포지토리의 **Settings → Secrets and variables → Actions → New repository secret** 에서 아래 2개를 추가합니다.
@@ -49,9 +50,7 @@ Public 리포지토리는 GitHub Actions가 무료이므로 **별도 서버 없�
 
 ---
 
-## 💻 로컬 / Docker 실행 (1~2분 단위 초실시간 감시)
-
-블랙프라이데이 초특가는 5분 안에 품절되기도 하므로, 더 빠른 폴링이 필요하면 Docker나 로컬에서 상시 실행할 수 있습니다.
+## 💻 로컬 / Docker / 웹 대시보드 실행
 
 ### Python 로컬 실행
 ```bash
@@ -62,10 +61,13 @@ cp .env.example .env
 # 1) 텔레그램 발송 없이 현재 찐할인 미리보기 (Dry Run)
 bf-radar run --dry-run
 
-# 2) 텔레그램 연결 테스트
+# 2) 실시간 정적 웹 대시보드 생성 (docs/index.html + docs/deals.json)
+bf-radar dashboard
+
+# 3) 텔레그램 연결 테스트
 bf-radar test-telegram
 
-# 3) 2분(120초) 간격 상시 감시
+# 4) 2분(120초) 간격 상시 감시
 bf-radar watch --interval 120
 ```
 

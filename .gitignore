@@ -20,7 +20,8 @@ secrets.*
 config.local.yaml
 config.secret.yaml
 
-# Runtime DB & logs
+# Runtime DB, generated dashboard & logs
+docs/
 data/*.db
 data/*.db-journal
 data/*.db-wal

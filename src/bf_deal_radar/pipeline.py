@@ -31,6 +31,7 @@ class RunReport:
     notified_count: int = 0
     already_seen_count: int = 0
     notified_deals: list[ScoredDeal] = field(default_factory=list)
+    all_qualified_deals: list[ScoredDeal] = field(default_factory=list)
 
 
 def run_once(
@@ -70,6 +71,7 @@ def run_once(
     with DealStorage(config.db_path) as storage:
         is_first_run = storage.is_empty()
         candidates: list[ScoredDeal] = []
+        all_qualified: list[ScoredDeal] = []
 
         for deal in clustered:
             prev_low = storage.get_previous_low_price(deal.canonical_key)
@@ -93,6 +95,7 @@ def run_once(
                 continue
 
             report.qualified_count += 1
+            all_qualified.append(deal)
             if not dry_run and not storage.should_notify(deal):
                 report.already_seen_count += 1
                 continue
@@ -100,14 +103,14 @@ def run_once(
             candidates.append(deal)
 
         # Rank highest-value deals first (VIP watch matches first, then score, then freshness)
-        candidates.sort(
-            key=lambda d: (
-                1 if d.is_watch_match else 0,
-                d.score,
-                d.primary.published_at.timestamp() if d.primary.published_at else 0.0,
-            ),
-            reverse=True,
+        rank_key = lambda d: (
+            1 if d.is_watch_match else 0,
+            d.score,
+            d.primary.published_at.timestamp() if d.primary.published_at else 0.0,
         )
+        all_qualified.sort(key=rank_key, reverse=True)
+        candidates.sort(key=rank_key, reverse=True)
+        report.all_qualified_deals = all_qualified
 
         # Avoid first-run notification flood while still showing top deals immediately
         effective_limit = min(max_alerts, 5) if (is_first_run and not dry_run and limit_override is None) else max_alerts

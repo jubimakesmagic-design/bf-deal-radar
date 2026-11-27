@@ -1,0 +1,49 @@
+name: Deploy Deal Dashboard (GitHub Pages)
+
+on:
+  workflow_dispatch:
+  # GitHub Pages(Settings > Pages > Source: GitHub Actions)를 켠 뒤 아래 schedule 주석을 풀면 30분마다 자동 갱신됩니다.
+  # schedule:
+  #   - cron: "*/30 * * * *"
+
+# 시크릿 미사용: 공개 핫딜 데이터만 정적 페이지로 배포
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build_and_deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install bf-deal-radar
+        run: pip install -e .
+
+      - name: Generate live Black Friday dashboard
+        run: bf-radar dashboard --output docs --min-score 55 --limit 60
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

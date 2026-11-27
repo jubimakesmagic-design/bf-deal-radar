@@ -10,7 +10,8 @@ from bf_deal_radar.models import AppConfig, ScoredDeal
 
 _ALL_TIME_LOW_RE = re.compile(
     r"\b(?:all[\s-]time\s+low|lowest\s+price\s+ever|lowest\s+ever|record\s+low|"
-    r"best\s+price\s+ever|amazon\s+all[\s-]time\s+low|new\s+low)\b",
+    r"best\s+price\s+ever|amazon\s+all[\s-]time\s+low|new\s+low|"
+    r"for\s+the\s+first\s+time|lowest\s+it(?:'s|\s+has)\s+ever\s+been)\b",
     re.IGNORECASE,
 )
 
@@ -18,6 +19,16 @@ _RECENT_LOW_RE = re.compile(
     r"\b(?:matches\s+its\s+(?:amazon\s+)?lowest|best\s+price(?:\s+of\s+the\s+year)?|"
     r"lowest\s+price(?:\s+we(?:'ve|\s+have)\s+seen)?|rare\s+\$?\d*\s*discount|"
     r"historic(?:al)?\s+low|beats?\s+its\s+previous\s+low)\b",
+    re.IGNORECASE,
+)
+
+# High-wattage / AC-powered US appliances that often require 120V (not dual-voltage 100-240V)
+_US_VOLTAGE_APPLIANCE_RE = re.compile(
+    r"\b(?:espresso|coffee\s+maker|keurig|nespresso|air\s+fryer|blender|stand\s+mixer|"
+    r"toaster|microwave|electric\s+kettle|rice\s+cooker|pressure\s+cooker|instant\s+pot|"
+    r"space\s+heater|heater|hair\s+dryer|airwrap|supersonic|air\s+purifier|humidifier|"
+    r"dehumidifier|vacuum|oled\s+tv|qled\s+tv|smart\s+tv|led\s+tv|fire\s+tv|soundbar|"
+    r"subwoofer|av\s+receiver|amplifier|waffle\s+maker|slow\s+cooker|juicer|ice\s+maker)\b",
     re.IGNORECASE,
 )
 
@@ -223,7 +234,11 @@ def verify_and_score(
     elif primary.price_usd is None and primary.discount_pct is None and primary.savings_usd is None:
         score -= 22
 
-    # 10. Korean KRW + customs calculation
+    # 10. US 110-120V voltage heads-up for AC/high-wattage appliances
+    if _US_VOLTAGE_APPLIANCE_RE.search(title_and_cat) and "usb" not in title_lower and "battery" not in title_lower:
+        deal.voltage_warning = "⚡ 미국 110~120V 전압 확인 필요 (프리볼트/변압기 체크)"
+
+    # 11. Korean KRW + customs calculation
     if primary.price_usd is not None:
         deal.customs = estimate_customs(
             price_usd=primary.price_usd,

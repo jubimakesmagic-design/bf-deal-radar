@@ -126,6 +126,7 @@ class ScoredDeal:
     is_tech_category: bool = False
     is_historical_low: bool = False
     condition_warning: str | None = None
+    voltage_warning: str | None = None
     reasons: list[str] = field(default_factory=list)
     customs: CustomsEstimate | None = None
     llm: LLMEnrichment | None = None

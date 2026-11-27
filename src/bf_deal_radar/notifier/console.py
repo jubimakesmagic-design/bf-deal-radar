@@ -24,6 +24,8 @@ class ConsoleNotifier:
             print(f"  판매처: {p.retailer or 'Unknown'} | 소스: {', '.join(deal.merged_sources)}")
         if deal.customs:
             print(f"  통관: {deal.customs.label}")
+        if deal.voltage_warning:
+            print(f"  전압: {deal.voltage_warning}")
         if p.coupon_code:
             print(f"  쿠폰: {p.coupon_code}")
         if deal.reasons:
