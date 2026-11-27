@@ -90,6 +90,14 @@ sources:
     base_score: 16
     category_hint: "IT/PC"
 
+  - name: "Slickdeals AliExpress & Tech"
+    id: "slickdeals_ali"
+    type: "slickdeals"
+    url: "https://slickdeals.net/newsearch.php?q=aliexpress+OR+temu+OR+ugreen+OR+baseus+OR+anker&searcharea=deals&searchin=first&rss=1"
+    enabled: true
+    base_score: 14
+    category_hint: "알리핫딜"
+
   - name: "DealNews Home & Garden"
     id: "dealnews_home"
     type: "dealnews"
@@ -146,6 +154,22 @@ sources:
     base_score: 12
     category_hint: "생활/식품"
 
+  - name: "Dan's Deals"
+    id: "dansdeals"
+    type: "generic"
+    url: "https://www.dansdeals.com/feed/"
+    enabled: true
+    base_score: 14
+    category_hint: "인기 핫딜"
+
+  - name: "GottaDeal"
+    id: "gottadeal"
+    type: "generic"
+    url: "https://www.gottadeal.com/rss.xml"
+    enabled: true
+    base_score: 13
+    category_hint: "인기 핫딜"
+
   - name: "9to5Toys"
     id: "9to5toys"
     type: "9to5toys"
@@ -178,7 +202,7 @@ sources:
     base_score: 13
     category_hint: "IT/게이밍"
 
-  # === 🇰🇷 국내 핫딜 커뮤니티 & 쿠팡 특화 (쿠팡·네이버·G마켓·11번가·롯데온·무신사·알리 등 전 품목) ===
+  # === 🇰🇷 국내 핫딜 커뮤니티 · 쿠팡/주요몰 전용관 · 알리/테무/아이허브 (전 품목) ===
   - name: "다사자 쿠팡 핫딜"
     id: "dasaja_coupang"
     type: "dasaja"
@@ -187,6 +211,60 @@ sources:
     enabled: true
     base_score: 22
     category_hint: "쿠팡핫딜"
+
+  - name: "다사자 네이버 핫딜"
+    id: "dasaja_naver"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%EB%84%A4%EC%9D%B4%EB%B2%84"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
+  - name: "다사자 G마켓 핫딜"
+    id: "dasaja_gmarket"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=G%EB%A7%88%EC%BC%93"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
+  - name: "다사자 11번가 핫딜"
+    id: "dasaja_11st"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=11%EB%B2%88%EA%B0%80"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
+  - name: "다사자 롯데온 핫딜"
+    id: "dasaja_lotteon"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%EB%A1%AF%EB%8D%B0%EC%98%A8"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
+  - name: "다사자 무신사 핫딜"
+    id: "dasaja_musinsa"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%EB%AC%B4%EC%8B%A0%EC%82%AC"
+    enabled: true
+    base_score: 18
+    category_hint: "패션/의류"
+
+  - name: "다사자 올리브영 핫딜"
+    id: "dasaja_olive"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%EC%98%AC%EB%A6%AC%EB%B8%8C%EC%98%81"
+    enabled: true
+    base_score: 18
+    category_hint: "건강/뷰티"
 
   - name: "다사자 BEST 핫딜"
     id: "dasaja_best"
@@ -206,14 +284,51 @@ sources:
     base_score: 16
     category_hint: "국내핫딜"
 
+  - name: "다사자 임박 딜"
+    id: "dasaja_imbak"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/saja_imbak"
+    enabled: true
+    base_score: 16
+    category_hint: "임박특가"
+
+  # 중국 알리익스프레스 · 테무 · 아이허브 · 해외직구 한국어 특가
   - name: "다사자 알리 딜"
     id: "dasaja_ali"
     type: "dasaja"
     region: "KR"
     url: "https://dasaja.co.kr/saja_ali"
     enabled: true
-    base_score: 16
+    base_score: 18
     category_hint: "알리핫딜"
+
+  - name: "다사자 테무 딜"
+    id: "dasaja_temu"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_world&wr_1=%ED%85%8C%EB%AC%B4"
+    enabled: true
+    base_score: 16
+    category_hint: "테무핫딜"
+
+  - name: "다사자 해외 딜"
+    id: "dasaja_world"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/saja_world"
+    enabled: true
+    base_score: 16
+    category_hint: "해외핫딜"
+
+  - name: "다사자 아이허브 특가"
+    id: "dasaja_iherb"
+    type: "dasaja_iherb"
+    region: "KR"
+    url: "https://dasaja.co.kr/saja_iherb"
+    enabled: true
+    base_score: 18
+    category_hint: "아이허브"
 
   # 핫구사: 뽐뿌·에펨코리아·아카라이브·퀘이사존·쿨엔조이·어미새·루리웹·ZOD 8개 커뮤니티 실시간 + 12개월 최저가 검증
   - name: "핫구사 실시간 핫딜"
@@ -230,6 +345,16 @@ sources:
     type: "hotgusa"
     region: "KR"
     url: "https://www.hotgusa.com/lowest"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
+  # 개드립 핫딜 게시판
+  - name: "개드립 핫딜"
+    id: "dogdrip_hotdeal"
+    type: "dogdrip"
+    region: "KR"
+    url: "https://www.dogdrip.net/hotdeal"
     enabled: true
     base_score: 18
     category_hint: "국내핫딜"

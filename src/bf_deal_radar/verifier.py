@@ -71,6 +71,8 @@ _PLATFORM_MAP = {
     "cnet": "CNET",
     "ign": "IGN",
     "hip2save": "Hip2Save",
+    "dan's deals": "Dan's Deals",
+    "gottadeal": "GottaDeal",
     "reddit": "Reddit",
     # Map specific Korean communities BEFORE generic aggregator names so
     # "핫구사·루리웹" and "루리웹 핫딜" collapse into one platform ("루리웹").
@@ -78,6 +80,7 @@ _PLATFORM_MAP = {
     "클리앙": "클리앙",
     "딜바다": "딜바다",
     "어미새": "어미새",
+    "개드립": "개드립",
     "뽐뿌": "뽐뿌",
     "에펨코리아": "에펨코리아",
     "아카라이브": "아카라이브",
@@ -118,6 +121,8 @@ _KR_TRUSTED_MALLS = {
     "오늘의집",
     "컴퓨존",
     "알리익스프레스",
+    "테무",
+    "아이허브",
     "나이키",
     "아디다스",
     "유니클로",
@@ -130,12 +135,16 @@ _KR_HOT_VALUE_RE = re.compile(
 
 _KR_CATEGORY_MAP = {
     "음식": "🍔 식품/간식",
+    "식품": "🍔 식품/간식",
     "식품/건강": "🍔 식품/간식",
     "사탕": "🍔 식품/간식",
     "과자": "🍔 식품/간식",
     "음료": "🍔 식품/간식",
+    "임박특가": "🍔 식품/간식",
     "PC/가전": "💻 IT/가전",
+    "PC/HW": "💻 IT/가전",
     "디지털": "💻 IT/가전",
+    "전자": "💻 IT/가전",
     "컴퓨터": "💻 IT/가전",
     "가전": "🏠 스마트홈/가전",
     "게임S/W": "🎮 게이밍",
@@ -149,6 +158,7 @@ _KR_CATEGORY_MAP = {
     "패션/의류": "👕 패션/잡화",
     "화장품": "🧴 뷰티/건강",
     "건강/뷰티": "🧴 뷰티/건강",
+    "아이허브": "🧴 뷰티/건강",
     "등산/캠핑": "🏕️ 스포츠/캠핑",
     "스포츠/캠핑": "🏕️ 스포츠/캠핑",
     "자동차/공구": "🚗 자동차/공구",
@@ -157,6 +167,7 @@ _KR_CATEGORY_MAP = {
     "상품정보": "🛍️ 국내핫딜",
     "쿠팡핫딜": "🛍️ 쿠팡핫딜",
     "알리핫딜": "🌏 알리/직구",
+    "테무핫딜": "🌏 알리/직구",
     "해외핫딜": "🌏 해외직구",
     "이벤트정보": "🎁 이벤트/혜택",
 }
@@ -352,7 +363,10 @@ def _verify_and_score_kr(
         reasons.append(f"🔁 국내 2개 커뮤니티 교차 검증 ({', '.join(platforms)})")
 
     # 7. Pillar C — Discount depth & historical-low proof (unified, capped at 44 pts — no double-counting)
-    has_stat_low = "개월 평균가 대비" in primary.description
+    has_stat_low = (
+        "개월 평균가 대비" in primary.description
+        or ("대비" in primary.description and "가격 하락" in primary.description)
+    )
     pct = primary.discount_pct
     disc = 0
     if pct is not None:

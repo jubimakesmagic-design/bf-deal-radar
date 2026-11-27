@@ -531,3 +531,141 @@ def test_strict_scoring_prevents_inflation_and_blocks_fake_pct():
     )
     verify_and_score(viral_cross, cfg, usd_krw_rate=1350.0, now=now)
     assert viral_cross.score >= 90
+
+
+def test_parse_dogdrip_and_dasaja_iherb_html():
+    from bf_deal_radar.sources.korean import parse_dasaja_iherb_html, parse_dogdrip_html
+
+    now_kst = datetime(2026, 11, 27, 14, 0, tzinfo=KST)
+
+    dogdrip_html = """
+    <li class="ed flex popular-item">
+      <div class="ed flex padding-left-xsmall">
+        <div class="ed list-header">
+          <span class="ed badge badge-label">인기</span>
+          <h5 class="ed title">
+            <a href="/hotdeal/736864485?sort_index=popular&amp;page=1" class="ed title-link" data-document-srl="736864485">
+              [무신사] 메종미네드 패딩 50%할인 124,500원 (무료)
+            </a>
+            <span class="ed text-primary text-xxsmall">18</span>
+          </h5>
+        </div>
+        <div class="ed list-meta">
+          <span class="ed text-muted">[의류]</span>
+          <span class="ed text-primary"><i class="far fa-thumbs-up"></i></span>
+          <span class="ed text-primary">24</span>
+          <span class="ed text-muted"><i class="far fa-clock"></i> 2 시간 전</span>
+        </div>
+      </div>
+    </li>
+    <li class="ed flex">
+      <div class="ed flex padding-left-xsmall">
+        <div class="ed list-header">
+          <h5 class="ed title">
+            <a href="https://www.dogdrip.net/736853567" class="ed title-link" data-document-srl="736853567">
+              [네이버] 제스프리 썬골드키위 2.3kg 33,900원 (무료)
+            </a>
+            <span class="ed text-primary text-xxsmall">4</span>
+          </h5>
+        </div>
+        <div class="ed list-meta">
+          <span class="ed text-muted">[식품]</span>
+          <span class="ed text-primary"><i class="far fa-thumbs-up"></i></span>
+          <span class="ed text-primary">6</span>
+          <span class="ed text-muted"><i class="far fa-clock"></i> 1 일 전</span>
+        </div>
+      </div>
+    </li>
+    <li class="ed flex">
+      <div class="ed flex padding-left-xsmall">
+        <div class="ed list-header">
+          <h5 class="ed title">
+            <a href="https://www.dogdrip.net/736864485" class="ed title-link" data-document-srl="736864485">
+              [무신사] 메종미네드 패딩 50%할인 124,500원 (무료)
+            </a>
+          </h5>
+        </div>
+      </div>
+    </li>
+    """
+    dd_src = SourceConfig(
+        id="dogdrip_hotdeal",
+        name="개드립 핫딜",
+        type="dogdrip",
+        region="KR",
+        url="https://www.dogdrip.net/hotdeal",
+        base_score=18,
+    )
+    dd_deals = parse_dogdrip_html(dogdrip_html, dd_src, now_kst=now_kst)
+    assert len(dd_deals) == 2  # duplicate doc_id deduplicated while preserving 인기 badge
+    assert dd_deals[0].url == "https://www.dogdrip.net/hotdeal/736864485"
+    assert dd_deals[0].staff_pick is True
+    assert dd_deals[0].retailer == "무신사"
+    assert dd_deals[0].price_krw == 124500
+    assert dd_deals[0].shipping_label == "무료배송"
+    assert dd_deals[0].discount_pct == 50.0
+    assert dd_deals[0].thumb_score == 24
+    assert dd_deals[0].comment_count == 18
+    assert dd_deals[0].category == "의류"
+    assert dd_deals[0].published_at == datetime(2026, 11, 27, 12, 0, tzinfo=KST).astimezone(timezone.utc)
+
+    assert dd_deals[1].url == "https://www.dogdrip.net/hotdeal/736853567"
+    assert dd_deals[1].staff_pick is False
+    assert dd_deals[1].retailer == "네이버"
+    assert dd_deals[1].price_krw == 33900
+    assert dd_deals[1].comment_count == 4
+    assert dd_deals[1].published_at == datetime(2026, 11, 26, 14, 0, tzinfo=KST).astimezone(timezone.utc)
+
+    # Dasaja iHerb day-over-day price-drop gallery parser
+    iherb_html = """
+    <div class="photo_content_box">
+      <a href="/saja_iherb/91001" class="photo_title">나우푸드 오메가-3 200정</a>
+      <div class="ih_rate"><b>39%</b><span class="ih_vs">내림</span></div>
+      <del>30,019원</del>
+      <span class="price_display">18,251</span>
+      <div class="ih_date">11.27</div>
+    </div>
+    <div class="photo_content_box">
+      <a href="/saja_iherb/91002" class="photo_title">가격 상승 상품</a>
+      <div class="ih_rate"><b>25%</b><span class="ih_vs">오름</span></div>
+      <del>10,000원</del>
+      <span class="price_display">12,500</span>
+      <div class="ih_date">11.27</div>
+    </div>
+    <div class="photo_content_box">
+      <a href="/saja_iherb/91003" class="photo_title">소폭 하락 상품</a>
+      <div class="ih_rate"><b>10%</b><span class="ih_vs">내림</span></div>
+      <del>10,000원</del>
+      <span class="price_display">9,000</span>
+      <div class="ih_date">11.27</div>
+    </div>
+    """
+    ih_src = SourceConfig(
+        id="dasaja_iherb",
+        name="다사자 아이허브 특가",
+        type="dasaja_iherb",
+        region="KR",
+        url="https://dasaja.co.kr/saja_iherb",
+        base_score=18,
+        category_hint="아이허브",
+    )
+    ih_deals = parse_dasaja_iherb_html(iherb_html, ih_src, now_kst=now_kst)
+    assert len(ih_deals) == 1  # skips 오름 and <15% drop
+    assert ih_deals[0].title == "[아이허브] 나우푸드 오메가-3 200정"
+    assert ih_deals[0].retailer == "아이허브"
+    assert ih_deals[0].price_krw == 18251
+    assert ih_deals[0].discount_pct == 39.0
+    assert "전날(30,019원) 대비 39% 가격 하락" in ih_deals[0].description
+
+    # Verify iHerb day-over-day drop gets statistical historical-low recognition in verifier
+    cfg = AppConfig(min_score=70, kr_min_score=70, min_price_krw=3000)
+    ih_scored = ScoredDeal(
+        canonical_key="url:iherb1",
+        primary=ih_deals[0],
+        merged_sources=["다사자 아이허브 특가"],
+    )
+    verify_and_score(ih_scored, cfg, usd_krw_rate=1350.0, now=now_kst.astimezone(timezone.utc))
+    assert ih_scored.is_historical_low is True
+    assert ih_scored.category_label_ko == "🧴 뷰티/건강"
+    assert any("전날(30,019원) 대비 39% 가격 하락" in r for r in ih_scored.reasons)
+

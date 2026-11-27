@@ -456,6 +456,11 @@ _KR_RETAILERS: list[tuple[str, str]] = [
     ("우체국몰", "우체국몰"),
     ("알리익스프레스", "알리익스프레스"),
     ("알리", "알리익스프레스"),
+    ("테무", "테무"),
+    ("temu", "테무"),
+    ("아이허브", "아이허브"),
+    ("iherb", "아이허브"),
+    ("이유몰", "이유몰"),
     ("스팀", "스팀"),
     ("에픽게임즈", "에픽게임즈"),
     ("플레이스토어", "플레이스토어"),
@@ -486,7 +491,7 @@ _KR_WON_RE = re.compile(r"(?:₩\s*|(?<!\d))(\d{1,3}(?:,\d{3})+|\d{4,7})\s*원|�
 _KR_MAN_WON_RE = re.compile(r"(?<!\d)(\d{1,3}(?:\.\d{1,2})?)\s*만\s*(?:(\d{1,4})\s*천?)?\s*원?")
 _KR_SLASH_PRICE_RE = re.compile(r"(\d{1,3}(?:,\d{3})+)\s*/\s*(?:무료|무배|와우|네멤|배송|유배|\d)")
 _KR_NON_ITEM_PREFIX_RE = re.compile(
-    r"(?:배송비|택배비|적립|포인트|캐시백|쿠폰|추가\s*할인|체감|최대|할인)\s*$"
+    r"(?:배송비|택배비|적립|포인트|캐시백|쿠폰|추가\s*할인|즉시\s*할인|최대)\s*$"
 )
 _KR_SOLD_OUT_RE = re.compile(
     r"(?:\[\s*(?:종료|품절|마감|끌올종료)\s*\]|\(\s*(?:종료|품절|마감)\s*\)|(?:품절|종료|마감)됨\b|^품절\b)",
@@ -495,7 +500,7 @@ _KR_SOLD_OUT_RE = re.compile(
 _KR_PCT_RE = re.compile(r"(\d{1,2})\s*%\s*(?:할인|세일|off|특가|적립|쿠폰|↓)?", re.IGNORECASE)
 _KR_INGREDIENT_PCT_PREFIX_RE = re.compile(
     r"(?:연육|함량|함유|면|코튼|울|캐시미어|폴리|나일론|알코올|도수|카페인|지방|단백질|"
-    r"천연|국산|국내산|원액|과즙|착즙|순면|유기농|배터리|충전|효율|성분|원유|우유|카카오|다크|초콜릿|과채|농축)\s*$",
+    r"천연|국산|국내산|원액|과즙|착즙|순면|유기농|유크림|배터리|충전|효율|성분|원유|우유|카카오|다크|초콜릿|과채|농축)\s*$",
     re.IGNORECASE,
 )
 
@@ -576,7 +581,7 @@ def extract_kr_retailer(title: str) -> str | None:
 
 def extract_kr_shipping(title: str) -> str | None:
     """Detect free shipping vs paid shipping from Korean hot deal title."""
-    if re.search(r"(?:무료배송|무배|와우무료|네멤무료|로켓배송|/\s*무료\b)", title):
+    if re.search(r"(?:무료배송|무배|와우무료|네멤무료|로켓배송|/\s*무료\b|\(\s*무료\s*\))", title):
         return "무료배송"
     if re.search(r"(?:배송비\s*별도|유배|배송비\s*\d)", title):
         return "배송비 별도"

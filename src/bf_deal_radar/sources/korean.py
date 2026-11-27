@@ -95,13 +95,31 @@ def _parse_kst_time(raw: str, now_kst: datetime | None = None) -> datetime | Non
         except ValueError:
             return None
 
-    # MM-DD (Dealbada older posts)
-    m_md = re.fullmatch(r"(\d{2})-(\d{2})", s)
+    # Relative KST timestamps (Dogdrip: "23 분 전", "2 시간 전", "1 일 전", "방금 전")
+    if "방금" in s:
+        return now_kst.astimezone(timezone.utc)
+    m_rel = re.fullmatch(r"(\d+)\s*(초|분|시간|일)\s*전", s)
+    if m_rel:
+        qty = int(m_rel.group(1))
+        unit = m_rel.group(2)
+        if unit == "초":
+            return (now_kst - timedelta(seconds=qty)).astimezone(timezone.utc)
+        if unit == "분":
+            return (now_kst - timedelta(minutes=qty)).astimezone(timezone.utc)
+        if unit == "시간":
+            return (now_kst - timedelta(hours=qty)).astimezone(timezone.utc)
+        if unit == "일":
+            return (now_kst - timedelta(days=qty)).astimezone(timezone.utc)
+
+    # MM-DD or MM.DD (Dealbada older posts, Dasaja iHerb)
+    m_md = re.fullmatch(r"(\d{2})[.-](\d{2})", s)
     if m_md:
         year = now_kst.year
         month, day = int(m_md.group(1)), int(m_md.group(2))
         try:
             dt = datetime(year, month, day, 12, 0, tzinfo=KST)
+            if dt.date() == now_kst.date():
+                return now_kst.astimezone(timezone.utc)
             if dt > now_kst + timedelta(days=2):
                 dt = datetime(year - 1, month, day, 12, 0, tzinfo=KST)
             return dt.astimezone(timezone.utc)
@@ -734,6 +752,145 @@ def parse_eomisae_html(html_text: str, source: SourceConfig, now_kst: datetime |
     return deals
 
 
+def parse_dogdrip_html(html_text: str, source: SourceConfig, now_kst: datetime | None = None) -> list[RawDeal]:
+    """Parse Dogdrip Hot Deal board (www.dogdrip.net/hotdeal)."""
+    deals: list[RawDeal] = []
+    seen_ids: set[str] = set()
+    blocks = html_text.split('<div class="ed flex padding-left-xsmall">')[1:]
+
+    for block in blocks:
+        # Isolate current item cleanly (avoid bleeding into subsequent list items)
+        end_li = block.find("</li>")
+        item = block[:end_li] if end_li != -1 else block
+        if "badge-notice" in item or ">공지<" in item:
+            continue
+
+        h5_m = re.search(r"<h5[^>]*>(.*?)</h5>", item, re.S)
+        header = h5_m.group(1) if h5_m else item
+
+        link_m = re.search(
+            r'<a[^>]+data-document-srl="(\d+)"[^>]*>(.*?)</a>',
+            header,
+            re.S,
+        )
+        if not link_m:
+            link_m = re.search(
+                r'<a[^>]+href="(?:https://www\.dogdrip\.net)?/(?:hotdeal/)?(\d+)[^"]*"[^>]*class="[^"]*title-link[^"]*"[^>]*>(.*?)</a>',
+                header,
+                re.S,
+            )
+        if not link_m:
+            continue
+
+        doc_id = link_m.group(1)
+        if doc_id in seen_ids:
+            continue
+        title = strip_html(link_m.group(2))
+        if not title:
+            continue
+        seen_ids.add(doc_id)
+
+        is_popular = ">인기<" in item
+        cate_m = re.search(r'<span[^>]*text-muted[^>]*>\s*\[([^\]]+)\]\s*</span>', item)
+        category = html.unescape(cate_m.group(1)).strip() if cate_m else None
+
+        up_m = re.search(r'fa-thumbs-up"></i></span>\s*<span[^>]*>\s*(\d+)', item, re.S)
+        upvotes = int(up_m.group(1)) if up_m else 0
+
+        cmt_m = re.search(r'</a>\s*<span[^>]*text-primary[^>]*>\s*(\d+)\s*</span>', header, re.S)
+        comments = int(cmt_m.group(1)) if cmt_m else 0
+
+        time_m = re.search(r'fa-clock"></i>\s*([^<]+)<', item)
+        published_at = _parse_kst_time(time_m.group(1), now_kst=now_kst) if time_m else None
+
+        sold_out = is_kr_sold_out(title) or "line-through" in header or "<del" in header
+
+        deals.append(
+            RawDeal(
+                source_id=source.id,
+                source_name=source.name,
+                source_type=source.type,
+                source_base_score=source.base_score,
+                category_hint=category or source.category_hint,
+                external_id=f"dogdrip-{doc_id}",
+                title=title,
+                url=f"https://www.dogdrip.net/hotdeal/{doc_id}",
+                region="KR",
+                published_at=published_at,
+                retailer=extract_kr_retailer(title),
+                price_krw=extract_krw_price(title),
+                shipping_label=extract_kr_shipping(title),
+                discount_pct=extract_kr_discount_pct(title),
+                thumb_score=upvotes,
+                comment_count=comments,
+                is_sold_out=sold_out,
+                staff_pick=is_popular,
+                category=category,
+            )
+        )
+    return deals
+
+
+def parse_dasaja_iherb_html(html_text: str, source: SourceConfig, now_kst: datetime | None = None) -> list[RawDeal]:
+    """Parse Dasaja iHerb day-over-day price-drop gallery (dasaja.co.kr/saja_iherb)."""
+    deals: list[RawDeal] = []
+    cards = html_text.split('<div class="photo_content_box">')[1:]
+
+    for card in cards:
+        title_m = re.search(r'<a[^>]+href="(/saja_iherb/(\d+))"[^>]*class="photo_title"[^>]*>(.*?)</a>', card, re.S)
+        if not title_m:
+            continue
+        path, doc_id = title_m.group(1), title_m.group(2)
+        title = strip_html(title_m.group(3))
+        if not title:
+            continue
+
+        # Only track actual price DROPS ("내림"), skip price increases
+        rate_m = re.search(r'<div class="ih_rate">\s*<b>(\d{1,2})%</b>\s*<span class="ih_vs">([^<]+)</span>', card, re.S)
+        if not rate_m or "내림" not in rate_m.group(2):
+            continue
+        drop_pct = float(rate_m.group(1))
+        if drop_pct < 15.0:
+            continue
+
+        prev_m = re.search(r"<del>([\d,]+)원</del>", card)
+        prev_krw = _parse_int(prev_m.group(1)) if prev_m else None
+
+        price_m = re.search(r'class="price_display">([\d,]+)</span>', card)
+        price_krw = _parse_int(price_m.group(1)) if price_m else None
+
+        dt_m = re.search(r'<div class="ih_date">([^<]+)</div>', card)
+        published_at = _parse_kst_time(dt_m.group(1), now_kst=now_kst) if dt_m else None
+
+        desc = (
+            f"전날({prev_krw:,}원) 대비 {drop_pct:.0f}% 가격 하락"
+            if prev_krw
+            else f"전날 대비 {drop_pct:.0f}% 가격 하락"
+        )
+
+        deals.append(
+            RawDeal(
+                source_id=source.id,
+                source_name=source.name,
+                source_type=source.type,
+                source_base_score=source.base_score,
+                category_hint=source.category_hint,
+                external_id=f"dasaja-iherb-{doc_id}",
+                title=f"[아이허브] {title}",
+                url=f"https://dasaja.co.kr{path}",
+                region="KR",
+                description=desc,
+                published_at=published_at,
+                retailer="아이허브",
+                price_krw=price_krw,
+                discount_pct=drop_pct,
+                is_sold_out=is_kr_sold_out(title),
+                category="아이허브",
+            )
+        )
+    return deals
+
+
 def parse_korean_board_html(
     content: bytes,
     source: SourceConfig,
@@ -751,8 +908,12 @@ def parse_korean_board_html(
         return parse_hotgusa_html(html_text, source, now_kst=now_kst)
     if source.type == "dasaja":
         return parse_dasaja_html(html_text, source, now_kst=now_kst)
+    if source.type == "dasaja_iherb":
+        return parse_dasaja_iherb_html(html_text, source, now_kst=now_kst)
     if source.type == "eomisae":
         return parse_eomisae_html(html_text, source, now_kst=now_kst)
+    if source.type == "dogdrip":
+        return parse_dogdrip_html(html_text, source, now_kst=now_kst)
     return []
 
 
@@ -763,6 +924,7 @@ _IGNORED_BUY_HOSTS = (
     "eomisae.co.kr",
     "dasaja.co.kr",
     "hotgusa.com",
+    "dogdrip.net",
     "cloudfront.net",
     "daumcdn.net",
     "imgur.com",
@@ -872,7 +1034,7 @@ def extract_buy_url_from_post_html(html_text: str, source_type: str) -> str | No
     return None
 
 
-_SKIP_BUY_URL_LOOKUP_TYPES = {"hotgusa", "dasaja"}
+_SKIP_BUY_URL_LOOKUP_TYPES = {"hotgusa", "dasaja", "dasaja_iherb", "dogdrip"}
 
 
 def _pick_buy_url_lookup_target(deal: ScoredDeal) -> tuple[str, str] | None:

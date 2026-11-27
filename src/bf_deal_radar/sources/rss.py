@@ -24,7 +24,7 @@ from bf_deal_radar.security import is_safe_http_url
 from bf_deal_radar.sources.korean import parse_korean_board_html
 
 logger = logging.getLogger(__name__)
-_KOREAN_HTML_TYPES = {"ruliweb", "clien", "dealbada", "hotgusa", "dasaja", "eomisae"}
+_KOREAN_HTML_TYPES = {"ruliweb", "clien", "dealbada", "hotgusa", "dasaja", "dasaja_iherb", "eomisae", "dogdrip"}
 
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
 _SD_THUMB_RE = re.compile(r"Thumb\s+Score:\s*([+-]?\d+)", re.IGNORECASE)
@@ -258,9 +258,9 @@ async def _fetch_single_source(
 
     headers = {
         "User-Agent": (
-            "linux:bf-deal-radar:0.6"
+            "linux:bf-deal-radar:0.7"
             if source.type == "reddit"
-            else "BFDealRadar/0.6 (+https://github.com/jubimakesmagic-design/bf-deal-radar)"
+            else "BFDealRadar/0.7 (+https://github.com/jubimakesmagic-design/bf-deal-radar)"
         ),
         "Accept": (
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -313,7 +313,7 @@ async def fetch_all_sources_with_cache(
         return [], []
 
     cache_map = feed_cache or {}
-    limits = httpx.Limits(max_connections=16, max_keepalive_connections=8)
+    limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
     async with httpx.AsyncClient(timeout=timeout, limits=limits, max_redirects=5) as client:
         results = await asyncio.gather(
             *(_fetch_single_source(client, source, cache_map.get(source.id)) for source in enabled)
