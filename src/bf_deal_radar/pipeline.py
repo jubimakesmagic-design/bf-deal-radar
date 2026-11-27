@@ -120,8 +120,9 @@ def run_once(
 
             candidates.append(deal)
 
-        # Rank purely by verified deal score first
+        # Rank live price-error alerts first, then purely by verified deal score
         rank_key = lambda d: (
+            1 if d.is_price_error else 0,
             d.score,
             1 if d.is_historical_low else 0,
             d.primary.published_at.timestamp() if d.primary.published_at else 0.0,

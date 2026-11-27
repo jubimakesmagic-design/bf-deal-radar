@@ -224,3 +224,56 @@ def test_cluster_merges_downvotes_and_buy_url_and_config_defaults(tmp_path):
     assert cfg.kr_min_score == 70
 
 
+def test_us_price_mistake_fast_track_and_guards():
+    now = datetime.now(timezone.utc)
+    cfg = _make_config()
+    cfg.min_score = 70
+
+    # Brand-new sub-$5 US price mistake immediately passes 70+
+    us_err = ScoredDeal(
+        canonical_key="url:us-err",
+        primary=RawDeal(
+            source_id="dansdeals",
+            source_name="Dan's Deals",
+            source_type="generic",
+            source_base_score=14,
+            category_hint="인기 핫딜",
+            external_id="uspe1",
+            title="Price Mistake: Bose Headphones for $2.99 at Amazon",
+            url="https://www.dansdeals.com/price-mistake-bose",
+            published_at=now,
+            retailer="Amazon",
+            price_usd=2.99,
+        ),
+        merged_sources=["Dan's Deals"],
+    )
+    verify_and_score(us_err, cfg, usd_krw_rate=1350.0, now=now)
+    assert us_err.excluded_reason is None
+    assert us_err.is_price_error is True
+    assert us_err.score >= 70
+    assert us_err.reasons[0] == "🚨 가격오류(Price Mistake) 속보"
+
+    # Expired / dead price mistake does NOT fast-track
+    dead = ScoredDeal(
+        canonical_key="url:us-dead",
+        primary=RawDeal(
+            source_id="dansdeals",
+            source_name="Dan's Deals",
+            source_type="generic",
+            source_base_score=14,
+            category_hint="인기 핫딜",
+            external_id="uspe2",
+            title="[Dead] Price Mistake: Bose Headphones for $29 at Amazon",
+            url="https://www.dansdeals.com/dead-bose",
+            published_at=now,
+            retailer="Amazon",
+            price_usd=29.0,
+        ),
+        merged_sources=["Dan's Deals"],
+    )
+    verify_and_score(dead, cfg, usd_krw_rate=1350.0, now=now)
+    assert dead.is_price_error is False
+    assert dead.score < 70
+
+
+

@@ -752,3 +752,110 @@ def test_korean_buy_url_modern_html_and_dasaja_usd_parsing():
     assert parsed[0].price_krw == 35237
 
 
+def test_korean_price_error_fast_track_and_guards():
+    now = datetime.now(timezone.utc)
+    cfg = AppConfig(
+        min_score=70,
+        kr_min_score=70,
+        min_price_krw=3000,
+        filters=FilterConfig(kr_exclude_keywords=["네이버페이", "라방", "적립"]),
+    )
+
+    # 1. Brand-new Coupang pricing error (no % off, 0 upvotes, sub-3,000원) immediately crosses 70+
+    coupang_err = ScoredDeal(
+        canonical_key="url:cp-err",
+        primary=RawDeal(
+            source_id="dasaja_coupang",
+            source_name="다사자 쿠팡 핫딜",
+            source_type="dasaja",
+            source_base_score=22,
+            category_hint="쿠팡핫딜",
+            external_id="pe1",
+            title="[쿠팡] 소니 헤드폰 990원 가격오류인듯",
+            url="https://dasaja.co.kr/saja_korea/999001",
+            region="KR",
+            published_at=now,
+            retailer="쿠팡",
+            price_krw=990,
+        ),
+        merged_sources=["다사자 쿠팡 핫딜"],
+    )
+    verify_and_score(coupang_err, cfg, usd_krw_rate=1350.0, now=now)
+    assert coupang_err.excluded_reason is None
+    assert coupang_err.is_price_error is True
+    assert coupang_err.score >= 70
+    assert coupang_err.reasons[0] == "🚨 가격오류/오표기 속보"
+    tg_html = format_telegram_html(coupang_err)
+    assert "🚨🚨🚨" in tg_html
+    assert "가격오류 속보" in tg_html
+
+    # 2. Canceled / post-mortem pricing error chatter must NOT fast-track
+    canceled = ScoredDeal(
+        canonical_key="url:cp-cancel",
+        primary=RawDeal(
+            source_id="dasaja_coupang",
+            source_name="다사자 쿠팡 핫딜",
+            source_type="dasaja",
+            source_base_score=22,
+            category_hint="쿠팡핫딜",
+            external_id="pe2",
+            title="[쿠팡] 아까 소니 가격오류 취소됨 19,900원",
+            url="https://dasaja.co.kr/saja_korea/999002",
+            region="KR",
+            published_at=now,
+            retailer="쿠팡",
+            price_krw=19900,
+        ),
+        merged_sources=["다사자 쿠팡 핫딜"],
+    )
+    verify_and_score(canceled, cfg, usd_krw_rate=1350.0, now=now)
+    assert canceled.is_price_error is False
+    assert canceled.score < 70
+
+    # 3. Downvoted fake pricing error gets penalized below 70
+    fake = ScoredDeal(
+        canonical_key="url:cp-fake",
+        primary=RawDeal(
+            source_id="dasaja_coupang",
+            source_name="다사자 쿠팡 핫딜",
+            source_type="dasaja",
+            source_base_score=22,
+            category_hint="쿠팡핫딜",
+            external_id="pe3",
+            title="[쿠팡] 낚시 가격오류 19,900원",
+            url="https://dasaja.co.kr/saja_korea/999003",
+            region="KR",
+            published_at=now,
+            retailer="쿠팡",
+            price_krw=19900,
+            thumb_score=0,
+            downvote_count=5,
+        ),
+        merged_sources=["다사자 쿠팡 핫딜"],
+    )
+    verify_and_score(fake, cfg, usd_krw_rate=1350.0, now=now)
+    assert fake.score < 70
+
+    # 4. Spam exclusion (네이버페이/적립) still blocks even if title says 가격오류
+    spam_err = ScoredDeal(
+        canonical_key="url:cp-spam",
+        primary=RawDeal(
+            source_id="dasaja_naver",
+            source_name="다사자 네이버 핫딜",
+            source_type="dasaja",
+            source_base_score=18,
+            category_hint="국내핫딜",
+            external_id="pe4",
+            title="[네이버페이] 500원 적립 가격오류",
+            url="https://dasaja.co.kr/saja_korea/999004",
+            region="KR",
+            published_at=now,
+            price_krw=500,
+        ),
+        merged_sources=["다사자 네이버 핫딜"],
+    )
+    verify_and_score(spam_err, cfg, usd_krw_rate=1350.0, now=now)
+    assert spam_err.excluded_reason is not None
+
+
+

@@ -144,6 +144,24 @@ _KR_HOT_VALUE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_KR_PRICE_ERROR_RE = re.compile(
+    r"(?:가격\s*오류|오표기|가격\s*실수|프라이스\s*미스|price\s*(?:mistake|error)|pricing\s+(?:mistake|error))",
+    re.IGNORECASE,
+)
+_KR_PRICE_ERROR_NEGATION_RE = re.compile(
+    r"(?:가격\s*오류|오표기|가격\s*실수).{0,12}(?:취소|막힘|수정|정상화|복구|끝|종료|후기|환불|아님|아니|였|었)"
+    r"|(?:취소|막힘|수정|정상화|복구|환불).{0,12}(?:가격\s*오류|오표기)",
+    re.IGNORECASE,
+)
+_US_PRICE_ERROR_RE = re.compile(
+    r"\b(?:price\s+(?:mistake|error|glitch)|pricing\s+(?:mistake|error|glitch)|deal\s+glitch|glitch\s+deal)\b",
+    re.IGNORECASE,
+)
+_US_PRICE_ERROR_NEGATION_RE = re.compile(
+    r"\b(?:dead|expired|over|fixed|cancel(?:led|ed)|not\s+a\s+price\s+(?:mistake|error))\b",
+    re.IGNORECASE,
+)
+
 _KR_CATEGORY_MAP = {
     "음식": "🍔 식품/간식",
     "식품": "🍔 식품/간식",
@@ -318,8 +336,25 @@ def _verify_and_score_kr(
             deal.excluded_reason = f"국내 제외 키워드 매칭: {kw}"
             return deal
 
-    # 4. Minimum KRW price check (drops 5원/10원/500원 point-click promos)
-    if primary.price_krw is not None and config.min_price_krw is not None:
+    upvotes = primary.thumb_score or 0
+    downvotes = primary.downvote_count or 0
+    comments = primary.comment_count or 0
+    views = primary.view_count or 0
+
+    # Detect genuine pricing-error / mispriced-item alerts (excluding canceled/fixed/post-mortem chatter)
+    is_price_error = (
+        bool(_KR_PRICE_ERROR_RE.search(primary.title))
+        and not _KR_PRICE_ERROR_NEGATION_RE.search(primary.title)
+        and (
+            primary.price_krw is not None
+            or primary.retailer is not None
+            or upvotes >= 2
+            or comments >= 3
+        )
+    )
+
+    # 4. Minimum KRW price check (drops 5원/10원/500원 point-click promos; allows explicit price errors)
+    if not is_price_error and primary.price_krw is not None and config.min_price_krw is not None:
         if primary.price_krw < config.min_price_krw:
             deal.excluded_reason = f"최소 가격 미달 ({primary.price_krw:,}원)"
             return deal
@@ -327,11 +362,6 @@ def _verify_and_score_kr(
     # Normalized source credibility base (11~17 pts)
     score = min(17, int(round(primary.source_base_score * 0.78)))
     reasons: list[str] = []
-
-    upvotes = primary.thumb_score or 0
-    downvotes = primary.downvote_count or 0
-    comments = primary.comment_count or 0
-    views = primary.view_count or 0
     platforms = _distinct_platforms(deal.merged_sources)
 
     # 5. Pillar A — Community engagement proof (capped at 26 pts so viral small discounts cannot inflate to 100)
@@ -415,6 +445,7 @@ def _verify_and_score_kr(
     # Cap unverified store-banner percentages on multi-item range promos (e.g. "모음전 8,900원~ (74%)")
     if (
         not has_stat_low
+        and not is_price_error
         and disc > 10
         and _KR_PROMO_RANGE_RE.search(primary.title)
         and upvotes < 8
@@ -441,6 +472,12 @@ def _verify_and_score_kr(
             disc = min(44, disc + 4)
             reasons.append("🏆 역대가/초특가 키워드")
 
+    if is_price_error:
+        deal.is_price_error = True
+        deal.is_historical_low = True
+        disc = max(disc, 58)
+        reasons.insert(0, "🚨 가격오류/오표기 속보")
+
     score += disc
 
     # 8. Trusted domestic mall & free shipping baseline (+3 / +2)
@@ -460,7 +497,13 @@ def _verify_and_score_kr(
         reasons.append(f"🚨 관심 키워드 ({', '.join(deal.matched_watch_keywords)})")
 
     # Down-rank vague promo notices with no concrete price and low community proof
-    if primary.price_krw is None and primary.discount_pct is None and upvotes < 5 and comments < 10:
+    if (
+        not is_price_error
+        and primary.price_krw is None
+        and primary.discount_pct is None
+        and upvotes < 5
+        and comments < 10
+    ):
         score -= 18
 
     deal.category_label_ko = classify_korean_category(primary.title, primary.category_hint)
@@ -501,9 +544,21 @@ def verify_and_score(
             deal.excluded_reason = f"제외 키워드 매칭: {kw}"
             return deal
 
-    # 3. Price range check (only when a concrete price was parsed)
+    is_roundup = bool(_ROUNDUP_TITLE_RE.search(title_lower))
+    is_price_error = (
+        not is_roundup
+        and bool(_US_PRICE_ERROR_RE.search(primary.title))
+        and not _US_PRICE_ERROR_NEGATION_RE.search(primary.title)
+        and (
+            primary.price_usd is not None
+            or primary.retailer is not None
+            or (primary.thumb_score or 0) >= 5
+        )
+    )
+
+    # 3. Price range check (only when a concrete price was parsed; allow sub-$5 explicit price mistakes)
     if primary.price_usd is not None:
-        if config.min_price_usd is not None and primary.price_usd < config.min_price_usd:
+        if not is_price_error and config.min_price_usd is not None and primary.price_usd < config.min_price_usd:
             deal.excluded_reason = f"최소 가격 미달 (${primary.price_usd:.2f})"
             return deal
         if config.max_price_usd is not None and primary.price_usd > config.max_price_usd:
@@ -550,7 +605,7 @@ def verify_and_score(
         score += 15
         reasons.append(f"🔁 2개 사이트 교차 검증 ({', '.join(platforms)})")
 
-    # 6. Quantitative discount depth (max 36 pts)
+    # 6. Quantitative discount depth (max 36 pts, or fast-track 60 pts for explicit price mistakes)
     discount_points = 0
     if primary.discount_pct is not None:
         pct = primary.discount_pct
@@ -587,6 +642,12 @@ def verify_and_score(
         if sav_pts > discount_points:
             discount_points = sav_pts
             reasons.append(f"💵 ${sav:,.0f} 즉시 할인")
+
+    if is_price_error:
+        deal.is_price_error = True
+        deal.is_historical_low = True
+        discount_points = max(discount_points, 60)
+        reasons.insert(0, "🚨 가격오류(Price Mistake) 속보")
 
     score += discount_points
 
@@ -647,11 +708,16 @@ def verify_and_score(
         deal.membership_warning = "🏷️ 미국 회원제 필요 / 배대지 취소 주의"
         score -= 12
 
-    if _ROUNDUP_TITLE_RE.search(title_lower):
+    if is_roundup:
         score -= 40
         deal.is_watch_match = False
         reasons.append("⚠️ 단일 상품이 아닌 모음/허브 기사 (감점)")
-    elif primary.price_usd is None and primary.discount_pct is None and primary.savings_usd is None:
+    elif (
+        not is_price_error
+        and primary.price_usd is None
+        and primary.discount_pct is None
+        and primary.savings_usd is None
+    ):
         score -= 22
 
     # 10. Korean overseas-import practical heads-up badges (110V voltage & bulky freight)

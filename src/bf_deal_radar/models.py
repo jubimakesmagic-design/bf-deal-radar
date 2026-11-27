@@ -138,6 +138,7 @@ class ScoredDeal:
     is_tech_category: bool = False
     category_label_ko: str = "🛍️ 핫딜"
     is_historical_low: bool = False
+    is_price_error: bool = False
     condition_warning: str | None = None
     voltage_warning: str | None = None
     bulky_warning: str | None = None

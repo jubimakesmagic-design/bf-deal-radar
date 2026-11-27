@@ -61,6 +61,7 @@ def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
         "matched_watch_keywords": deal.matched_watch_keywords,
         "is_tech": deal.is_tech_category,
         "is_historical_low": deal.is_historical_low,
+        "is_price_error": deal.is_price_error,
         "is_cross_source": len(deal.merged_sources) >= 2,
         "coupon_code": p.coupon_code,
         "condition_warning": deal.condition_warning,
@@ -351,6 +352,7 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
         if (sort === "discount") return (b.discount_pct || 0) - (a.discount_pct || 0) || b.score - a.score;
         if (sort === "price_asc") return effectiveKrw(a) - effectiveKrw(b) || b.score - a.score;
         return (
+          (b.is_price_error ? 1 : 0) - (a.is_price_error ? 1 : 0) ||
           b.score - a.score ||
           (b.is_historical_low ? 1 : 0) - (a.is_historical_low ? 1 : 0) ||
           (b.is_watch_match ? 1 : 0) - (a.is_watch_match ? 1 : 0)
@@ -375,8 +377,9 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
         const top = document.createElement("div");
         top.className = "card-top";
         const sc = document.createElement("span");
-        sc.className = "score" + (d.score >= 85 ? " high" : "");
-        sc.textContent = `${domestic ? "🇰🇷" : "🇺🇸"} ${d.is_watch_match ? "🚨 " : ""}${d.score}점`;
+        sc.className = "score" + (d.is_price_error || d.score >= 85 ? " high" : "");
+        const prefix = d.is_price_error ? "🚨 가격오류 · " : (d.is_watch_match ? "🚨 " : "");
+        sc.textContent = `${domestic ? "🇰🇷" : "🇺🇸"} ${prefix}${d.score}점`;
         const meta = document.createElement("span");
         meta.className = "meta";
         const catTxt = d.category_label_ko ? `${d.category_label_ko} · ` : "";

@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 def _score_badge(deal: ScoredDeal) -> str:
+    if deal.is_price_error:
+        return "🚨🚨🚨"
     if deal.score >= 90:
         return "🔥🔥🔥"
     if deal.is_watch_match or deal.score >= 80:
@@ -28,6 +30,8 @@ def _score_badge(deal: ScoredDeal) -> str:
 
 
 def _tier_label(deal: ScoredDeal) -> str:
+    if deal.is_price_error:
+        return "가격오류 속보"
     if deal.llm and deal.llm.verdict:
         return deal.llm.verdict
     if deal.score >= 90:

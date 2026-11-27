@@ -11,10 +11,11 @@ class ConsoleNotifier:
     def send_deal(self, deal: ScoredDeal) -> bool:
         p = deal.primary
         region = "🇰🇷국내" if deal.is_domestic_kr else "🇺🇸직구"
+        err_tag = " [🚨가격오류]" if deal.is_price_error else ""
         watch_tag = " [🚨WATCH]" if deal.is_watch_match else ""
 
         print("=" * 76)
-        print(f"[{region} {deal.score:3d}점]{watch_tag} ({deal.category_label_ko}) {p.title}")
+        print(f"[{region} {deal.score:3d}점]{err_tag}{watch_tag} ({deal.category_label_ko}) {p.title}")
 
         if deal.is_domestic_kr:
             price_str = f"{p.price_krw:,}원" if p.price_krw is not None else "가격 원글 확인"
