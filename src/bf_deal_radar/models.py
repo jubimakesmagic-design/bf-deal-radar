@@ -124,9 +124,12 @@ class ScoredDeal:
     is_watch_match: bool = False
     matched_watch_keywords: list[str] = field(default_factory=list)
     is_tech_category: bool = False
+    category_label_ko: str = "🛍️ 해외직구 핫딜"
     is_historical_low: bool = False
     condition_warning: str | None = None
     voltage_warning: str | None = None
+    bulky_warning: str | None = None
+    membership_warning: str | None = None
     reasons: list[str] = field(default_factory=list)
     customs: CustomsEstimate | None = None
     llm: LLMEnrichment | None = None

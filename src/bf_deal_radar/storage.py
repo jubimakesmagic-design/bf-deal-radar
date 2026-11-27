@@ -54,6 +54,13 @@ class DealStorage:
                     value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS feed_cache (
+                    source_id TEXT PRIMARY KEY,
+                    etag TEXT,
+                    last_modified TEXT,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -65,6 +72,28 @@ class DealStorage:
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+    def get_feed_cache(self) -> dict[str, tuple[str | None, str | None]]:
+        """Return {source_id: (etag, last_modified)} for conditional HTTP requests."""
+        rows = self._conn.execute("SELECT source_id, etag, last_modified FROM feed_cache").fetchall()
+        return {str(r["source_id"]): (r["etag"], r["last_modified"]) for r in rows}
+
+    def update_feed_cache(self, source_id: str, etag: str | None, last_modified: str | None) -> None:
+        if not etag and not last_modified:
+            return
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO feed_cache (source_id, etag, last_modified, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(source_id) DO UPDATE SET
+                    etag = excluded.etag,
+                    last_modified = excluded.last_modified,
+                    updated_at = excluded.updated_at
+                """,
+                (source_id, etag, last_modified, now_iso),
+            )
 
     def is_empty(self) -> bool:
         row = self._conn.execute("SELECT COUNT(*) AS cnt FROM seen_deals").fetchone()
@@ -172,10 +201,13 @@ class DealStorage:
                     ),
                 )
 
-    def prune_old(self, days: int = 30) -> int:
+    def prune_old(self, days: int = 14) -> int:
         """Keep the SQLite DB compact by deleting stale entries older than `days`."""
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         with self._conn:
             cur1 = self._conn.execute("DELETE FROM seen_deals WHERE last_seen_at < ?", (cutoff,))
             self._conn.execute("DELETE FROM price_history WHERE recorded_at < ?", (cutoff,))
-        return cur1.rowcount
+        deleted = cur1.rowcount
+        if deleted > 0:
+            self._conn.execute("VACUUM")
+        return deleted

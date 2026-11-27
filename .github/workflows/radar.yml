@@ -31,7 +31,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # 작업 중 .git/config에 GITHUB_TOKEN을 남기지 않음
           persist-credentials: false
 
       - name: Set up Python 3.12
@@ -52,6 +51,7 @@ jobs:
             bf-radar-db-
 
       - name: Run Black Friday Deal Radar
+        id: radar
         env:
           # 모든 시크릿과 사용자 입력은 셸 인라인 보간 대신 환경변수로 안전하게 전달
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -64,19 +64,33 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
+          BEFORE_HASH=""
+          if [ -f data/radar.db ]; then
+            BEFORE_HASH=$(sha256sum data/radar.db | awk '{print $1}')
+          fi
+
           ARGS=()
           if [ "${INPUT_DRY_RUN:-false}" = "true" ]; then
             ARGS+=(--dry-run)
           elif [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
             echo "⚠️ TELEGRAM_BOT_TOKEN 또는 TELEGRAM_CHAT_ID Secrets가 아직 설정되지 않았습니다."
-            echo "   Settings > Secrets and variables > Actions 에서 두 값을 추가하면 텔레그램 알림이 시작됩니다."
             echo "   이번 실행은 --dry-run 모드로 동작합니다."
             ARGS+=(--dry-run)
           fi
           bf-radar run "${ARGS[@]}"
 
-      - name: Save seen-deals SQLite DB
-        if: always() && hashFiles('data/radar.db') != ''
+          AFTER_HASH=""
+          if [ -f data/radar.db ]; then
+            AFTER_HASH=$(sha256sum data/radar.db | awk '{print $1}')
+          fi
+          if [ -n "$AFTER_HASH" ] && [ "$BEFORE_HASH" != "$AFTER_HASH" ]; then
+            echo "db_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "db_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save seen-deals SQLite DB (only when changed)
+        if: always() && steps.radar.outputs.db_changed == 'true'
         uses: actions/cache/save@v4
         with:
           path: data/radar.db

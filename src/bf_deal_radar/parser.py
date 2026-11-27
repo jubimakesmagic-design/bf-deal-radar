@@ -257,13 +257,48 @@ def _extract_item_price(text: str) -> float | None:
     return None
 
 
+def _extract_pct_from(text: str) -> float | None:
+    if not text:
+        return None
+    cleaned = _UP_TO_PCT_RE.sub(" ", text)
+    pct_matches = [int(m.group(1)) for m in _PCT_OFF_RE.finditer(cleaned)]
+    # Ignore tiny 5% credit-card promos (e.g., Target RedCard 5% off) as genuine discounts
+    valid_pcts = [p for p in pct_matches if 10 <= p <= 95]
+    if valid_pcts:
+        return float(max(valid_pcts))
+    if re.search(r"\bhalf\s+off\b|\b50%\s+off\b|around\s+double\s+elsewhere", cleaned, re.IGNORECASE):
+        return 50.0
+    return None
+
+
+def _extract_savings_from(text: str) -> float | None:
+    if not text:
+        return None
+    cleaned = re.sub(
+        r"\bup\s+to\s+\$\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?\s*off\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    savings_vals: list[float] = []
+    for regex in (_SAVINGS_USD_RE, _SAVE_PREFIX_USD_RE):
+        for m in regex.finditer(cleaned):
+            val = _to_float(m.group(1))
+            if 1.0 <= val <= 10000.0:
+                savings_vals.append(val)
+    return max(savings_vals) if savings_vals else None
+
+
 def extract_price_info(
     title: str,
     description: str = "",
     explicit_price: float | None = None,
 ) -> PriceInfo:
-    """Extract current sale price, original price, dollar savings, and discount percentage."""
-    combined = f"{title}\n{description}"
+    """Extract current sale price, original price, dollar savings, and discount percentage.
+
+    Prefers title-level discount numbers over description text so blog intro sentences
+    referencing other deals don't corrupt single-item discount calculations.
+    """
     info = PriceInfo(price_usd=explicit_price)
 
     if info.price_usd is None:
@@ -271,38 +306,28 @@ def extract_price_info(
     if info.price_usd is None:
         info.price_usd = _extract_item_price(description)
 
-    # Original / list price
-    orig_match = _ORIGINAL_PRICE_RE.search(combined)
+    # Original / list price (prefer title first, then description)
+    orig_match = _ORIGINAL_PRICE_RE.search(title) or _ORIGINAL_PRICE_RE.search(description)
     if orig_match:
         orig_val = _to_float(orig_match.group(1))
         if info.price_usd is None or orig_val > info.price_usd:
             info.original_price_usd = orig_val
 
-    # Percentage off (ignore vague marketing "up to XX% off" phrases)
-    combined_no_upto = _UP_TO_PCT_RE.sub(" ", combined)
-    pct_matches = [int(m.group(1)) for m in _PCT_OFF_RE.finditer(combined_no_upto)]
-    if pct_matches:
-        valid_pcts = [p for p in pct_matches if 5 <= p <= 95]
-        if valid_pcts:
-            info.discount_pct = float(max(valid_pcts))
-    elif re.search(r"\bhalf\s+off\b|\b50%\s+off\b|around\s+double\s+elsewhere", combined_no_upto, re.IGNORECASE):
-        info.discount_pct = 50.0
+    # Percentage off (prefer title, fallback to description)
+    info.discount_pct = _extract_pct_from(title)
+    if info.discount_pct is None:
+        info.discount_pct = _extract_pct_from(description)
 
-    # Dollar savings ($X off / save $X), ignoring vague "up to $X off"
-    combined_no_upto_usd = re.sub(
-        r"\bup\s+to\s+\$\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?\s*off\b",
-        " ",
-        combined,
-        flags=re.IGNORECASE,
-    )
-    savings_vals: list[float] = []
-    for regex in (_SAVINGS_USD_RE, _SAVE_PREFIX_USD_RE):
-        for m in regex.finditer(combined_no_upto_usd):
-            val = _to_float(m.group(1))
-            if 1.0 <= val <= 10000.0:
-                savings_vals.append(val)
-    if savings_vals:
-        info.savings_usd = max(savings_vals)
+    # Dollar savings ($X off / save $X) — prefer title; sanity-check description-only savings
+    title_savings = _extract_savings_from(title)
+    if title_savings is not None:
+        info.savings_usd = title_savings
+    else:
+        desc_savings = _extract_savings_from(description)
+        if desc_savings is not None:
+            # Guard against blog intro bleed (e.g., "$400 off MacBook" bleeding onto a "$379 iPad")
+            if info.price_usd is None or desc_savings <= info.price_usd * 2.0:
+                info.savings_usd = desc_savings
 
     # Derive missing fields consistently
     if info.price_usd is not None and info.original_price_usd is not None:
@@ -311,14 +336,21 @@ def extract_price_info(
             calc_pct = round((calc_savings / info.original_price_usd) * 100.0, 1)
             if info.savings_usd is None:
                 info.savings_usd = calc_savings
-            if info.discount_pct is None:
+            if info.discount_pct is None and calc_pct >= 10.0:
                 info.discount_pct = calc_pct
     elif info.price_usd is not None and info.savings_usd is not None:
         implied_orig = round(info.price_usd + info.savings_usd, 2)
         if implied_orig > info.price_usd:
             info.original_price_usd = implied_orig
-            if info.discount_pct is None:
-                info.discount_pct = round((info.savings_usd / implied_orig) * 100.0, 1)
+            calc_pct = round((info.savings_usd / implied_orig) * 100.0, 1)
+            if info.discount_pct is None and calc_pct >= 10.0:
+                info.discount_pct = calc_pct
+    elif info.price_usd is not None and info.discount_pct is not None and 10.0 <= info.discount_pct < 90.0:
+        implied_orig = round(info.price_usd / (1.0 - info.discount_pct / 100.0), 2)
+        if implied_orig > info.price_usd:
+            info.original_price_usd = implied_orig
+            if info.savings_usd is None:
+                info.savings_usd = round(implied_orig - info.price_usd, 2)
 
     return info
 
@@ -349,3 +381,27 @@ def normalize_title_tokens(title: str) -> set[str]:
     cleaned = re.sub(r"\d+%", " ", cleaned)
     tokens = re.findall(r"[a-z0-9]+", cleaned)
     return {t for t in tokens if len(t) >= 2 and t not in _TITLE_STOPWORDS}
+
+
+_CLEAN_QUERY_PREFIX_RE = re.compile(
+    r"^(?:prime\s+members?:|costco\s+members?:|certified\s+open\s+box:|"
+    r"certified\s+refurb(?:ished)?:|whoa!|the\s+best\s+black\s+friday\s+deal\s+is\s+already\s+live:|"
+    r"land\s+|all-new\s+|the\s+)",
+    re.IGNORECASE,
+)
+_CLEAN_QUERY_SUFFIX_RE = re.compile(
+    r"(?:\s+(?:for|at|down\s+(?:at|to)|now\s+at|from)\s+\$|\s+\+\s*(?:free\s+)?s&?h|\s+\+\s*free\s+shipping|"
+    r"\s+@\s*\w+|\s+w/\s*code\b|\s+for\s+black\s+friday|\s+for\s+thanksgiving|"
+    r"\s*\((?:reg\.|was|save|up\s+to|giant|same\s+price)[^)]*\)).*$",
+    re.IGNORECASE,
+)
+
+
+def clean_product_query(title: str) -> str:
+    """Produce a concise product search query stripped of prices/shipping noise for CamelCamelCamel."""
+    q = html.unescape(title).strip()
+    q = _CLEAN_QUERY_PREFIX_RE.sub("", q).strip()
+    q = _CLEAN_QUERY_SUFFIX_RE.sub("", q).strip()
+    q = re.sub(r"\$\d+(?:,\d{3})*(?:\.\d{1,2})?", "", q)
+    q = _WHITESPACE_RE.sub(" ", q).strip(" -:,|!")
+    return (q or title)[:68]

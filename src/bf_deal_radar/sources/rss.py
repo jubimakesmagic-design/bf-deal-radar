@@ -248,49 +248,78 @@ MAX_FEED_BYTES = 5 * 1024 * 1024  # 5 MB safety cap per RSS/Atom feed
 async def _fetch_single_source(
     client: httpx.AsyncClient,
     source: SourceConfig,
-) -> list[RawDeal]:
+    cache_entry: tuple[str | None, str | None] | None = None,
+) -> tuple[list[RawDeal], tuple[str, str | None, str | None] | None]:
     if not is_safe_http_url(source.url):
         logger.warning("Skipping source with unsafe URL scheme: %s", source.name)
-        return []
+        return [], None
 
     headers = {
         "User-Agent": (
-            "linux:bf-deal-radar:0.1"
+            "linux:bf-deal-radar:0.3"
             if source.type == "reddit"
-            else "BFDealRadar/0.1 (+https://github.com/jubimakesmagic-design/bf-deal-radar)"
+            else "BFDealRadar/0.3 (+https://github.com/jubimakesmagic-design/bf-deal-radar)"
         ),
         "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
     }
+    if cache_entry:
+        etag, last_mod = cache_entry
+        if etag:
+            headers["If-None-Match"] = etag
+        if last_mod:
+            headers["If-Modified-Since"] = last_mod
+
     try:
         resp = await client.get(source.url, headers=headers, follow_redirects=True)
+        if resp.status_code == 304:
+            logger.info("304 Not Modified (cached): %s", source.name)
+            return [], None
         resp.raise_for_status()
         if len(resp.content) > MAX_FEED_BYTES:
             logger.warning("Skipping oversized feed from %s (%d bytes)", source.name, len(resp.content))
-            return []
+            return [], None
         deals = parse_feed_xml(resp.content, source)
+        new_etag = resp.headers.get("etag")
+        new_lm = resp.headers.get("last-modified")
+        cache_update = (source.id, new_etag, new_lm) if (new_etag or new_lm) else None
         logger.info("Fetched %d deals from %s", len(deals), source.name)
-        return deals
+        return deals, cache_update
     except Exception as exc:
         logger.warning("Failed to fetch %s (%s): %s", source.name, type(exc).__name__, exc)
-        return []
+        return [], None
+
+
+async def fetch_all_sources_with_cache(
+    sources: list[SourceConfig],
+    *,
+    feed_cache: dict[str, tuple[str | None, str | None]] | None = None,
+    timeout: float = 12.0,
+) -> tuple[list[RawDeal], list[tuple[str, str | None, str | None]]]:
+    """Fetch all enabled sources concurrently using optional ETag/Last-Modified cache."""
+    enabled = [s for s in sources if s.enabled]
+    if not enabled:
+        return [], []
+
+    cache_map = feed_cache or {}
+    limits = httpx.Limits(max_connections=12, max_keepalive_connections=6)
+    async with httpx.AsyncClient(timeout=timeout, limits=limits, max_redirects=5) as client:
+        results = await asyncio.gather(
+            *(_fetch_single_source(client, source, cache_map.get(source.id)) for source in enabled)
+        )
+
+    all_deals: list[RawDeal] = []
+    cache_updates: list[tuple[str, str | None, str | None]] = []
+    for deals, update in results:
+        all_deals.extend(deals)
+        if update is not None:
+            cache_updates.append(update)
+    return all_deals, cache_updates
 
 
 async def fetch_all_sources(
     sources: list[SourceConfig],
     timeout: float = 12.0,
 ) -> list[RawDeal]:
-    """Fetch all enabled sources concurrently."""
-    enabled = [s for s in sources if s.enabled]
-    if not enabled:
-        return []
-
-    limits = httpx.Limits(max_connections=10, max_keepalive_connections=5)
-    async with httpx.AsyncClient(timeout=timeout, limits=limits, max_redirects=5) as client:
-        results = await asyncio.gather(
-            *(_fetch_single_source(client, source) for source in enabled)
-        )
-
-    all_deals: list[RawDeal] = []
-    for batch in results:
-        all_deals.extend(batch)
-    return all_deals
+    """Fetch all enabled sources concurrently without conditional cache."""
+    deals, _ = await fetch_all_sources_with_cache(sources, feed_cache=None, timeout=timeout)
+    return deals

@@ -14,7 +14,7 @@ from bf_deal_radar.llm import enrich_deals_with_llm
 from bf_deal_radar.models import AppConfig, ScoredDeal
 from bf_deal_radar.notifier.console import ConsoleNotifier
 from bf_deal_radar.notifier.telegram import TelegramNotifier
-from bf_deal_radar.sources.rss import fetch_all_sources
+from bf_deal_radar.sources.rss import fetch_all_sources, fetch_all_sources_with_cache
 from bf_deal_radar.storage import DealStorage
 from bf_deal_radar.verifier import verify_and_score
 
@@ -52,24 +52,37 @@ def run_once(
     )
     report = RunReport(usd_krw_rate=usd_krw_rate)
 
-    raw_deals = asyncio.run(fetch_all_sources(config.sources))
-    report.raw_count = len(raw_deals)
-    if not raw_deals:
-        logger.warning("No deals fetched from any enabled source.")
-        return report
-
-    clustered = cluster_deals(raw_deals)
-    report.clustered_count = len(clustered)
-
-    now = datetime.now(timezone.utc)
-    notifier = (
-        ConsoleNotifier()
-        if (dry_run or seed_only)
-        else TelegramNotifier(config.telegram_bot_token, config.telegram_chat_id)
-    )
-
     with DealStorage(config.db_path) as storage:
         is_first_run = storage.is_empty()
+        cache_updates: list[tuple[str, str | None, str | None]] = []
+
+        if not dry_run:
+            # On non-dry runs, send ETag/If-Modified-Since (after first run) and record new cache headers
+            cached_headers = None if is_first_run else storage.get_feed_cache()
+            raw_deals, cache_updates = asyncio.run(
+                fetch_all_sources_with_cache(config.sources, feed_cache=cached_headers)
+            )
+        else:
+            raw_deals = asyncio.run(fetch_all_sources(config.sources))
+
+        for source_id, etag, last_mod in cache_updates:
+            storage.update_feed_cache(source_id, etag, last_mod)
+
+        report.raw_count = len(raw_deals)
+        if not raw_deals:
+            logger.info("No new or modified deals across enabled sources.")
+            return report
+
+        clustered = cluster_deals(raw_deals)
+        report.clustered_count = len(clustered)
+
+        now = datetime.now(timezone.utc)
+        notifier = (
+            ConsoleNotifier()
+            if (dry_run or seed_only)
+            else TelegramNotifier(config.telegram_bot_token, config.telegram_chat_id)
+        )
+
         candidates: list[ScoredDeal] = []
         all_qualified: list[ScoredDeal] = []
 
@@ -87,8 +100,8 @@ def run_once(
                 report.excluded_count += 1
                 continue
 
-            # VIP watch-keyword matches pass with a lower threshold so you never miss them
-            effective_min = max(40, min_score - 15) if deal.is_watch_match else min_score
+            # VIP watch-keyword matches still get a modest threshold break (-6) without burying stronger deals
+            effective_min = max(55, min_score - 6) if deal.is_watch_match else min_score
             if deal.score < effective_min:
                 if not dry_run:
                     storage.record_deal(deal, notified=False)
@@ -102,10 +115,10 @@ def run_once(
 
             candidates.append(deal)
 
-        # Rank highest-value deals first (VIP watch matches first, then score, then freshness)
+        # Rank purely by verified deal score first (watch keywords already contribute +18 to score)
         rank_key = lambda d: (
-            1 if d.is_watch_match else 0,
             d.score,
+            1 if d.is_historical_low else 0,
             d.primary.published_at.timestamp() if d.primary.published_at else 0.0,
         )
         all_qualified.sort(key=rank_key, reverse=True)
@@ -119,8 +132,7 @@ def run_once(
 
         if to_send and not seed_only and config.llm.is_configured:
             enrich_deals_with_llm(to_send, config.llm)
-            # Re-sort after AI score adjustment
-            to_send.sort(key=lambda d: (1 if d.is_watch_match else 0, d.score), reverse=True)
+            to_send.sort(key=rank_key, reverse=True)
 
         for deal in to_send:
             if seed_only:
@@ -133,7 +145,6 @@ def run_once(
                 report.notified_deals.append(deal)
                 if not dry_run:
                     storage.record_deal(deal, notified=True)
-                    # Gentle spacing for Telegram rate limits
                     if isinstance(notifier, TelegramNotifier):
                         time.sleep(0.4)
 
@@ -141,6 +152,6 @@ def run_once(
         if not dry_run:
             for deal in overflow:
                 storage.record_deal(deal, notified=is_first_run or seed_only)
-            storage.prune_old(days=30)
+            storage.prune_old(days=14)
 
     return report

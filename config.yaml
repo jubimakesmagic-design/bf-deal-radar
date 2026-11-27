@@ -3,10 +3,10 @@
 
 radar:
   # 이 점수(0~100) 이상인 딜만 텔레그램 알림 발송
-  # - 55~60: 인기 블프 핫딜 폭넓게 수신
-  # - 65~75: 진짜 할인 폭이 크거나 역대가 검증된 딜 위주 (추천)
+  # - 60: 폭넓게 수신
+  # - 66~72: 진짜 할인 폭이 크거나 역대가 검증된 딜 위주 (최적 기본값)
   # - 80+: 초특가 / 교차검증 역대가만 수신
-  min_score: 60
+  min_score: 66
 
   # 한 번 실행 시 최대 발송 알림 수 (첫 실행 시 알림 폭탄 방지)
   max_alerts_per_run: 8
@@ -214,12 +214,41 @@ filters:
     - "playstation"
     - "nintendo"
 
-  # [제외 키워드] 해외직구로 사기 어렵거나(미국 내수 서비스·오프라인 전용) 노이즈인 딜 자동 제외
+  # [제외 키워드] 해외직구로 사기 어렵거나(미국 내수 서비스·오프라인·군인/학생 전용·배송불가 대형가구) 노이즈 자동 제외
   exclude_keywords:
     - "in-store only"
     - "in store only"
+    - "in-store:"
+    - "in-store pickup"
     - "local pickup only"
+    - "pickup only"
+    - "microcenter in-store"
+    - "micro center in-store"
     - "ymmv"
+    - "active military"
+    - "military/veterans"
+    - "veterans only"
+    - "aafes"
+    - "govx"
+    - "first responder"
+    - "student only"
+    - "edu only"
+    - "trade-in required"
+    - "with trade-in"
+    - "activation required"
+    - "new line"
+    - "amex offer"
+    - "chase offer"
+    - "lawn mower"
+    - "robot mower"
+    - "snow blower"
+    - "gas grill"
+    - "charcoal grill"
+    - "mattress"
+    - "patio furniture"
+    - "dining table"
+    - "sofa"
+    - "couch"
     - "free trial"
     - "sweepstakes"
     - "magazine subscription"

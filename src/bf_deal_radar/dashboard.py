@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 from bf_deal_radar.models import ScoredDeal
+from bf_deal_radar.parser import clean_product_query
 from bf_deal_radar.security import is_safe_http_url
 
 
@@ -19,7 +20,7 @@ def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
     camel_url = (
         deal.camel_url
         if (deal.camel_url and is_safe_http_url(deal.camel_url))
-        else f"https://camelcamelcamel.com/search?sq={quote_plus(p.title[:70])}"
+        else f"https://camelcamelcamel.com/search?sq={quote_plus(clean_product_query(p.title))}"
     )
     keepa_url = deal.keepa_url if (deal.keepa_url and is_safe_http_url(deal.keepa_url)) else None
 
@@ -36,6 +37,7 @@ def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
         "retailer": p.retailer or "Overseas",
         "sources": deal.merged_sources,
         "score": deal.score,
+        "category_label_ko": deal.category_label_ko,
         "price_usd": p.price_usd,
         "original_price_usd": p.original_price_usd,
         "discount_pct": p.discount_pct,
@@ -51,6 +53,8 @@ def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
         "coupon_code": p.coupon_code,
         "condition_warning": deal.condition_warning,
         "voltage_warning": deal.voltage_warning,
+        "bulky_warning": deal.bulky_warning,
+        "membership_warning": deal.membership_warning,
         "reasons": deal.reasons,
         "published_at": p.published_at.isoformat() if p.published_at else None,
     }

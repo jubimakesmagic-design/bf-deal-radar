@@ -18,7 +18,7 @@ class ConsoleNotifier:
         watch_tag = " [🚨WATCH]" if deal.is_watch_match else ""
 
         print("=" * 76)
-        print(f"[{deal.score:3d}점]{watch_tag} {p.title}")
+        print(f"[{deal.score:3d}점]{watch_tag} ({deal.category_label_ko}) {p.title}")
         print(f"  가격: {price_str}{krw_str}{disc_str}")
         if p.retailer or deal.merged_sources:
             print(f"  판매처: {p.retailer or 'Unknown'} | 소스: {', '.join(deal.merged_sources)}")
@@ -26,6 +26,10 @@ class ConsoleNotifier:
             print(f"  통관: {deal.customs.label}")
         if deal.voltage_warning:
             print(f"  전압: {deal.voltage_warning}")
+        if deal.bulky_warning:
+            print(f"  부피: {deal.bulky_warning}")
+        if deal.membership_warning:
+            print(f"  회원: {deal.membership_warning}")
         if p.coupon_code:
             print(f"  쿠폰: {p.coupon_code}")
         if deal.reasons:
