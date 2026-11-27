@@ -27,12 +27,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: "pip"
@@ -41,7 +41,7 @@ jobs:
         run: pip install -e .
 
       - name: Restore seen-deals SQLite DB
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: data/radar.db
           key: bf-radar-db-${{ github.run_id }}-${{ github.run_attempt }}
@@ -89,7 +89,7 @@ jobs:
 
       - name: Save seen-deals SQLite DB (only when changed)
         if: always() && steps.radar.outputs.db_changed == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: data/radar.db
           key: bf-radar-db-${{ github.run_id }}-${{ github.run_attempt }}

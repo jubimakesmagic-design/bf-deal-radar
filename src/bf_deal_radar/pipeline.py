@@ -44,8 +44,12 @@ def run_once(
     limit_override: int | None = None,
 ) -> RunReport:
     """Execute one full collection -> verification -> notification cycle."""
-    min_score = min_score_override if min_score_override is not None else config.min_score
     max_alerts = limit_override if limit_override is not None else config.max_alerts_per_run
+
+    def _cutoff_for(deal: ScoredDeal) -> int:
+        if min_score_override is not None:
+            return min_score_override
+        return config.kr_min_score if deal.is_domestic_kr else config.min_score
 
     usd_krw_rate = fetch_usd_krw_rate(
         fallback=config.fallback_usd_krw,
@@ -101,14 +105,10 @@ def run_once(
                 report.excluded_count += 1
                 continue
 
-            base_min = (
-                min_score_override
-                if min_score_override is not None
-                else (config.kr_min_score if deal.is_domestic_kr else config.min_score)
-            )
             # Watch keywords already earn +8/+10 inside verifier; keep cutoff strictly uniform
-            if deal.score < base_min:
-                if not dry_run:
+            if deal.score < _cutoff_for(deal):
+                # Only persist sub-threshold deals that carry a USD price for price_history tracking
+                if not dry_run and deal.primary.price_usd is not None:
                     storage.record_deal(deal, notified=False)
                 continue
 
@@ -140,6 +140,20 @@ def run_once(
 
         if to_send and not seed_only and config.llm.is_configured:
             enrich_deals_with_llm(to_send, config.llm)
+            kept: list[ScoredDeal] = []
+            for deal in to_send:
+                if deal.score < _cutoff_for(deal):
+                    logger.info(
+                        "Skipping deal downgraded below cutoff by LLM (%d < %d): %s",
+                        deal.score,
+                        _cutoff_for(deal),
+                        deal.primary.title[:50],
+                    )
+                    if not dry_run and deal.primary.price_usd is not None:
+                        storage.record_deal(deal, notified=False)
+                else:
+                    kept.append(deal)
+            to_send = kept
             to_send.sort(key=rank_key, reverse=True)
 
         for deal in to_send:
@@ -159,7 +173,8 @@ def run_once(
         # On first run, mark overflow deals as seen so subsequent 5-min crons only alert NEW deals
         if not dry_run:
             for deal in overflow:
-                storage.record_deal(deal, notified=is_first_run or seed_only)
+                if is_first_run or seed_only or deal.primary.price_usd is not None:
+                    storage.record_deal(deal, notified=is_first_run or seed_only)
             storage.prune_old(days=14)
 
     return report

@@ -195,3 +195,136 @@ def test_strict_uniform_cutoff_and_clean_telegram_labels(tmp_path: Path, monkeyp
     assert report.qualified_count == 0
     assert report.notified_count == 0
 
+
+def test_storage_cross_source_alias_prevents_duplicate_alerts(tmp_path: Path):
+    from bf_deal_radar.dedup import make_url_key
+
+    db_file = tmp_path / "alias.db"
+    dasaja_url = "https://dasaja.co.kr/saja_korea/610203"
+    hotgusa_url = "https://www.hotgusa.com/product/7_10599250685"
+
+    merged_first = ScoredDeal(
+        canonical_key=make_url_key(dasaja_url) or "url:dasaja",
+        primary=RawDeal(
+            source_id="dasaja_naver",
+            source_name="다사자 네이버 핫딜",
+            source_type="dasaja",
+            source_base_score=18,
+            category_hint="국내핫딜",
+            external_id="d1",
+            title="[네이버] 사과 2kg 4,900원",
+            url=dasaja_url,
+            region="KR",
+            price_krw=4900,
+        ),
+        merged_sources=["다사자 네이버 핫딜", "핫구사·에펨코리아"],
+        merged_urls={
+            "다사자 네이버 핫딜": dasaja_url,
+            "핫구사·에펨코리아": hotgusa_url,
+        },
+        score=90,
+    )
+
+    hotgusa_only = ScoredDeal(
+        canonical_key=make_url_key(hotgusa_url) or "url:hotgusa",
+        primary=RawDeal(
+            source_id="hotgusa_lowest",
+            source_name="핫구사·에펨코리아",
+            source_type="hotgusa",
+            source_base_score=18,
+            category_hint="국내핫딜",
+            external_id="h1",
+            title="[네이버] 사과 2kg 4,900원",
+            url=hotgusa_url,
+            region="KR",
+            price_krw=4900,
+        ),
+        merged_sources=["핫구사·에펨코리아"],
+        merged_urls={"핫구사·에펨코리아": hotgusa_url},
+        score=82,
+    )
+
+    with DealStorage(db_file) as store:
+        assert store.should_notify(merged_first) is True
+        store.record_deal(merged_first, notified=True)
+        # Next run: Dasaja timed out or 304'd, only Hotgusa survives -> MUST NOT duplicate alert!
+        assert store.should_notify(hotgusa_only) is False
+        # Significant >=10% price drop on Hotgusa alias DOES re-notify
+        hotgusa_only.primary.price_krw = 4200
+        assert store.should_notify(hotgusa_only) is True
+
+
+def test_llm_downgrade_enforces_cutoff_and_kr_prompt(tmp_path: Path, monkeypatch):
+    from bf_deal_radar.llm import _build_user_prompt
+    from bf_deal_radar.models import LLMConfig, LLMEnrichment
+
+    # Korean deal prompt uses Region=KR and Price KRW instead of USD
+    kr_deal = ScoredDeal(
+        canonical_key="url:kr-llm",
+        primary=RawDeal(
+            source_id="dasaja_coupang",
+            source_name="다사자 쿠팡 핫딜",
+            source_type="dasaja",
+            source_base_score=22,
+            category_hint="쿠팡핫딜",
+            external_id="k1",
+            title="[쿠팡] 테스트 상품 19,900원",
+            url="https://dasaja.co.kr/saja_korea/1",
+            region="KR",
+            retailer="쿠팡",
+            price_krw=19900,
+            shipping_label="무료배송",
+            discount_pct=40.0,
+            thumb_score=15,
+            comment_count=12,
+        ),
+        merged_sources=["다사자 쿠팡 핫딜"],
+        score=78,
+    )
+    prompt = _build_user_prompt(kr_deal)
+    assert "Region: KR" in prompt
+    assert "19,900원" in prompt
+    assert "Price USD" not in prompt
+
+    # Pipeline drops a deal if LLM score_adjustment pushes it below min_score
+    borderline = RawDeal(
+        source_id="dealnews_elec",
+        source_name="DealNews Electronics",
+        source_type="dealnews",
+        source_base_score=14,
+        category_hint="IT/가전",
+        external_id="llm-drop",
+        title="Sony WH-1000XM5 Headphones for $248 All-Time Low",
+        url="https://www.amazon.com/dp/B0LLMDROPT",
+        description="40% off, all-time low!",
+        published_at=datetime.now(timezone.utc),
+        retailer="Amazon",
+        price_usd=248.0,
+        discount_pct=40.0,
+        staff_pick=True,
+        asin="B0LLMDROPT",
+    )
+
+    async def _fake_fetch(_sources):
+        return [borderline]
+
+    def _fake_enrich(deals, _llm_cfg):
+        for d in deals:
+            d.llm = LLMEnrichment(verdict="주의필요", score_adjustment=-15)
+            d.score = max(0, d.score - 15)
+
+    monkeypatch.setattr("bf_deal_radar.pipeline.fetch_all_sources", _fake_fetch)
+    monkeypatch.setattr("bf_deal_radar.pipeline.fetch_usd_krw_rate", lambda **_: 1350.0)
+    monkeypatch.setattr("bf_deal_radar.pipeline.enrich_deals_with_llm", _fake_enrich)
+
+    cfg = AppConfig(
+        min_score=70,
+        db_path=str(tmp_path / "llm.db"),
+        sources=[SourceConfig(id="dealnews_elec", name="DealNews Electronics", type="dealnews", url="https://x")],
+        llm=LLMConfig(enabled=True, gemini_api_key="dummy-key-for-test"),
+    )
+    report = run_once(cfg, dry_run=True)
+    assert report.qualified_count == 1
+    assert report.notified_count == 0
+
+

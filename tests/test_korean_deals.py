@@ -669,3 +669,86 @@ def test_parse_dogdrip_and_dasaja_iherb_html():
     assert ih_scored.category_label_ko == "🧴 뷰티/건강"
     assert any("전날(30,019원) 대비 39% 가격 하락" in r for r in ih_scored.reasons)
 
+
+def test_korean_buy_url_modern_html_and_dasaja_usd_parsing():
+    from bf_deal_radar.sources.korean import parse_dasaja_html
+
+    # 3-digit KRW prices parsed (so min_price_krw=3000 blocks them), discount/point suffixes ignored
+    assert extract_krw_price("[쿠팡] 미니 간식 990원") == 990
+    assert extract_krw_price("[네이버] 1,000원 할인 쿠폰 증정") is None
+    assert extract_krw_price("[쿠팡] 500원 적립 + 12,900원") == 12900
+
+    # Modern Clien <p class="attached">구매링크 and <span class="outlink">
+    clien_attached = (
+        '<article><p class="attached">구매링크 '
+        '<a href="https://m.smartstore.naver.com/gabangpop" target="_blank">link</a></p></article>'
+    )
+    assert extract_buy_url_from_post_html(clien_attached, "clien") == "https://m.smartstore.naver.com/gabangpop"
+
+    clien_span_outlink = (
+        '<p><span class="outlink"><a class="url" href="https://click.linkprice.com/click.php?tu='
+        'https%3A%2F%2Fwww.coupang.com%2Fvp%2Fproducts%2F12345">go</a></span></p>'
+    )
+    assert extract_buy_url_from_post_html(clien_span_outlink, "clien") == "https://www.coupang.com/vp/products/12345"
+
+    # Dealbada bo_v_link with internal link.php href and full URL in <strong>
+    dealbada_post = (
+        '<section id="bo_v_link"><ul><li>'
+        '<a href="//www.dealbada.com/bbs/link.php?bo_table=deal_domestic&amp;wr_id=573017&amp;no=1">'
+        '<strong>https://brand.naver.com/rukryudoga/products/10181005637</strong></a>'
+        "</li></ul></section>"
+    )
+    assert (
+        extract_buy_url_from_post_html(dealbada_post, "dealbada")
+        == "https://brand.naver.com/rukryudoga/products/10181005637"
+    )
+
+    # Dealbada truncated <strong>...</strong> must be skipped
+    dealbada_trunc = (
+        '<section id="bo_v_link"><li><a href="//www.dealbada.com/bbs/link.php?no=1">'
+        "<strong>https://example.com/very/long/path...</strong></a></li></section>"
+    )
+    assert extract_buy_url_from_post_html(dealbada_trunc, "dealbada") is None
+
+    # Eomisae <td class="extra_url"> with LinkPrice wrapper
+    eomisae_extra = (
+        '<table><tr><th>링크</th><td class="extra_url">'
+        '<a href="https://click.linkprice.com/click.php?m=coupang&amp;tu='
+        'https%3A%2F%2Fwww.coupang.com%2Fvp%2Fproducts%2F9827878886">go</a>'
+        "</td></tr></table><article>본문 이미지</article>"
+    )
+    assert (
+        extract_buy_url_from_post_html(eomisae_extra, "eomisae")
+        == "https://www.coupang.com/vp/products/9827878886"
+    )
+
+    # Dasaja world/ali USD + KRW estimate parsing and [Slickdeals] mirror filtering
+    dasaja_world_html = """
+    <tr class="its_write ">
+      <td><div class="double_line_wrapper wr_1"><div class="cate">PC</div><div class="mall"><a href="?wr_1=알리"></a></div></div></td>
+      <td><div class="subject_wrapper"><a href="/saja_ali/1001">[알리익스프레스] AULA F75 기계식 키보드</a></div></td>
+      <td><div class="double_line_wrapper price">
+        <div class="min-price"><span>$</span><span>26.22</span></div>
+        <div>(약: 35,237원)</div>
+      </div></td>
+      <td>8/0</td><td>900</td>
+      <td><div class="double_line_wrapper write"><div>11:10</div></div></td>
+    </tr>
+    <tr class="its_write ">
+      <td><div class="double_line_wrapper wr_1"><div class="cate">TV</div></div></td>
+      <td><div class="subject_wrapper"><a href="/saja_world/1002">[Slickdeals] 75" Samsung Mini LED TV</a></div></td>
+      <td><div class="double_line_wrapper price">
+        <div class="min-price"><span>$</span><span>500.00</span></div>
+        <div>(약: 671,950원)</div>
+      </div></td>
+      <td>49/0</td><td>1.2k</td>
+      <td><div class="double_line_wrapper write"><div>11:05</div></div></td>
+    </tr>
+    """
+    src = SourceConfig(id="dasaja_ali", name="다사자 알리 딜", type="dasaja", region="KR", url="https://dasaja.co.kr/saja_ali", base_score=18)
+    parsed = parse_dasaja_html(dasaja_world_html, src, now_kst=datetime(2026, 11, 27, 12, 0, tzinfo=KST))
+    assert len(parsed) == 1  # [Slickdeals] mirror skipped
+    assert parsed[0].price_usd == 26.22
+    assert parsed[0].price_krw == 35237
+
+

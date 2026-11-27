@@ -551,6 +551,9 @@ def parse_dasaja_html(html_text: str, source: SourceConfig, now_kst: datetime | 
         title = strip_html(subj_m.group(2))
         if not title:
             continue
+        # Skip verbatim English Slickdeals mirrors on dasaja_world (tracked natively via US Slickdeals feeds)
+        if re.match(r"^\s*\[slickdeals\]", title, re.IGNORECASE):
+            continue
 
         # Comment badge if present after title anchor
         cmt_m = re.search(r"\[(\d+)\]|>(\d+)<", subj_m.group(3))
@@ -566,15 +569,34 @@ def parse_dasaja_html(html_text: str, source: SourceConfig, now_kst: datetime | 
         mall_raw = unquote(html.unescape(mall_m.group(1))) if mall_m else None
         retailer = normalize_kr_retailer(mall_raw) or extract_kr_retailer(title)
 
+        price_cell_m = re.search(r'<div class="double_line_wrapper price"[^>]*>(.*?)</td>', row, re.S)
+        price_cell_txt = strip_html(price_cell_m.group(1)) if price_cell_m else ""
+
         price_m = re.search(r'<div class="min-price"[^>]*>\s*<span>([\d,]+)</span>', row, re.S)
         price_krw = _parse_int(price_m.group(1)) if price_m else None
         if price_krw is not None and price_krw < 500:
             price_krw = None
+
+        usd_m = re.search(
+            r'<div class="min-price"[^>]*>\s*<span>\$\s*</span>\s*<span>([\d,]+(?:\.\d{1,2})?)</span>',
+            row,
+            re.S,
+        )
+        price_usd: float | None = None
+        if usd_m:
+            try:
+                val = float(usd_m.group(1).replace(",", ""))
+                if 0.5 <= val <= 25000:
+                    price_usd = val
+            except ValueError:
+                price_usd = None
+
+        # Dasaja world/ali/temu rows show "(약: 671,950원)" next to "$500.00" in the price cell
+        if price_krw is None and price_cell_txt:
+            price_krw = extract_krw_price(price_cell_txt)
         if price_krw is None:
             price_krw = extract_krw_price(title)
 
-        price_cell_m = re.search(r'<div class="double_line_wrapper price"[^>]*>(.*?)</td>', row, re.S)
-        price_cell_txt = strip_html(price_cell_m.group(1)) if price_cell_m else ""
         shipping_label = extract_kr_shipping(price_cell_txt) or extract_kr_shipping(title)
 
         votes_m = re.search(r"<td>\s*(\d+)\s*/\s*(\d+)\s*</td>\s*<td>\s*([\d.,]+k?)\s*</td>", row, re.I)
@@ -605,6 +627,7 @@ def parse_dasaja_html(html_text: str, source: SourceConfig, now_kst: datetime | 
                 region="KR",
                 published_at=published_at,
                 retailer=retailer,
+                price_usd=price_usd,
                 price_krw=price_krw,
                 shipping_label=shipping_label,
                 discount_pct=extract_kr_discount_pct(title),
@@ -986,6 +1009,10 @@ def unwrap_redirect_url(url: str) -> str:
     return current
 
 
+_STRONG_URL_RE = re.compile(r"<strong[^>]*>\s*(https?://[^<\s]+)\s*</strong>", re.IGNORECASE)
+_PROTO_REL_URL_RE = re.compile(r'href=["\'](//[^"\'<>\s]+)["\']', re.IGNORECASE)
+
+
 def extract_buy_url_from_post_html(html_text: str, source_type: str) -> str | None:
     """Extract the primary direct shopping URL from a Korean hot deal post page."""
     candidates: list[str] = []
@@ -1001,26 +1028,46 @@ def extract_buy_url_from_post_html(html_text: str, source_type: str) -> str | No
             candidates.extend(_SHOPPING_URL_RE.findall(body.group(1)))
 
     elif source_type == "clien":
-        # 1. Clien dedicated outlink block
-        outlink = re.search(r'class="outlink"[^>]*>(.*?)</div>', html_text, re.S | re.I)
+        # 1. Clien dedicated outlink block (wrapped in <span> or <div>)
+        outlink = re.search(r'class="outlink"[^>]*>(.*?)</(?:span|div|p)>', html_text, re.S | re.I)
         if outlink:
             candidates.extend(_SHOPPING_URL_RE.findall(outlink.group(1)))
-        # 2. Clien post body fallback
+        # 2. Modern Clien attached purchase link block (<p class="attached">구매링크 <a href="...">)
+        attached = re.search(r'class="attached"[^>]*>(.*?)</(?:p|div)>', html_text, re.S | re.I)
+        if attached:
+            candidates.extend(_SHOPPING_URL_RE.findall(attached.group(1)))
+        # 3. Clien post body fallback (legacy post_article or modern <article>)
         body = re.search(r'class="post_article"[^>]*>(.*?)</article>', html_text, re.S | re.I)
+        if not body:
+            body = re.search(r"<article[^>]*>(.*?)</article>", html_text, re.S | re.I)
         if body:
             candidates.extend(_SHOPPING_URL_RE.findall(body.group(1)))
 
     elif source_type == "dealbada":
-        # 1. Dealbada link section & post body
+        # 1. Dealbada link section: <a href="//www.dealbada.com/bbs/link.php?..."><strong>https://...</strong></a>
         link_sec = re.search(r'id="bo_v_link"[^>]*>(.*?)</section>', html_text, re.S | re.I)
         if link_sec:
-            candidates.extend(_SHOPPING_URL_RE.findall(link_sec.group(1)))
+            sec_html = link_sec.group(1)
+            candidates.extend(_SHOPPING_URL_RE.findall(sec_html))
+            for u in _STRONG_URL_RE.findall(sec_html):
+                if not u.endswith(("...", "…")):
+                    candidates.append(u)
+            for rel in _PROTO_REL_URL_RE.findall(sec_html):
+                candidates.append(f"https:{rel}")
+        # 2. Post body fallback (including protocol-relative //www.dealbada.com/bbs/linkS.php?url=...)
         body = re.search(r'id="bo_v_con"[^>]*>(.*?)</div>', html_text, re.S | re.I)
         if body:
-            candidates.extend(_SHOPPING_URL_RE.findall(body.group(1)))
+            body_html = body.group(1)
+            candidates.extend(_SHOPPING_URL_RE.findall(body_html))
+            for rel in _PROTO_REL_URL_RE.findall(body_html):
+                candidates.append(f"https:{rel}")
 
     elif source_type == "eomisae":
-        # Eomisae Rhymix/XE article body
+        # 1. Eomisae dedicated extra-vars URL cell (<td class="extra_url"><a href="...">)
+        extra_url = re.search(r'class="[^"]*extra_url[^"]*"[^>]*>(.*?)</td>', html_text, re.S | re.I)
+        if extra_url:
+            candidates.extend(_SHOPPING_URL_RE.findall(extra_url.group(1)))
+        # 2. Eomisae Rhymix/XE article body fallback
         body = re.search(r'class="rd_body[^"]*"[^>]*>(.*?)</article>', html_text, re.S | re.I)
         if not body:
             body = re.search(r"<article[^>]*>(.*?)</article>", html_text, re.S | re.I)
@@ -1071,7 +1118,7 @@ async def _resolve_single_buy_url(client: httpx.AsyncClient, deal: ScoredDeal) -
         resp = await client.get(
             post_url,
             headers={
-                "User-Agent": "BFDealRadar/0.6 (+https://github.com/jubimakesmagic-design/bf-deal-radar)",
+                "User-Agent": "BFDealRadar/0.8 (+https://github.com/jubimakesmagic-design/bf-deal-radar)",
                 "Accept-Language": "ko-KR,ko;q=0.9",
             },
             follow_redirects=True,

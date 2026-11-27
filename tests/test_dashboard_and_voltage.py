@@ -149,3 +149,110 @@ def test_discover_chat_ids_parses_updates_and_redacts_errors(monkeypatch):
     with pytest.raises(RuntimeError) as exc_info:
         discover_chat_ids(token)
     assert token not in str(exc_info.value)
+
+
+def test_modern_tv_voltage_and_beauty_category_and_kr_dashboard(tmp_path: Path):
+    now = datetime.now(timezone.utc)
+    cfg = AppConfig(min_score=70, max_age_hours=24, filters=FilterConfig())
+
+    canvas_tv = ScoredDeal(
+        canonical_key="url:canvastv",
+        primary=RawDeal(
+            source_id="dealnews_elec",
+            source_name="DealNews Electronics",
+            source_type="dealnews",
+            source_base_score=14,
+            category_hint="IT/가전",
+            external_id="tv-g",
+            title='Hisense S7 CanvasTV 85S7SG 85" 4K Smart Art Google TV for $1,698',
+            url="https://example.com/canvastv",
+            published_at=now,
+            price_usd=1698.0,
+            discount_pct=58.0,
+        ),
+        merged_sources=["DealNews Electronics"],
+    )
+    verify_and_score(canvas_tv, cfg, usd_krw_rate=1350.0, now=now)
+    assert canvas_tv.voltage_warning is not None
+    assert canvas_tv.bulky_warning is not None
+    assert canvas_tv.category_label_ko == "🖥️ 모니터/TV"
+
+    # Fire TV Stick & Apple TV must NOT trigger 110V AC warning
+    for safe_title in (
+        "All-new Amazon Fire TV Stick 4K just $20",
+        "Apple TV 4K 64GB Wi-Fi Streaming Box for $99",
+    ):
+        stick = ScoredDeal(
+            canonical_key=f"url:{safe_title[:8]}",
+            primary=RawDeal(
+                source_id="9to5toys",
+                source_name="9to5Toys",
+                source_type="9to5toys",
+                source_base_score=14,
+                category_hint="IT/가전",
+                external_id="st1",
+                title=safe_title,
+                url="https://example.com/stick",
+                published_at=now,
+                price_usd=20.0,
+            ),
+            merged_sources=["9to5Toys"],
+        )
+        verify_and_score(stick, cfg, usd_krw_rate=1350.0, now=now)
+        assert stick.voltage_warning is None
+
+    # Beauty product gets 🧴 뷰티/건강 instead of generic 인기 핫딜
+    cream = ScoredDeal(
+        canonical_key="url:cream",
+        primary=RawDeal(
+            source_id="dansdeals",
+            source_name="Dan's Deals",
+            source_type="generic",
+            source_base_score=14,
+            category_hint="인기 핫딜",
+            external_id="cr1",
+            title="Estée Lauder DayWear Moisture Cream SPF 15 For $26",
+            url="https://example.com/cream",
+            published_at=now,
+            price_usd=26.0,
+            discount_pct=50.0,
+        ),
+        merged_sources=["Dan's Deals"],
+    )
+    verify_and_score(cream, cfg, usd_krw_rate=1350.0, now=now)
+    assert cream.category_label_ko == "🧴 뷰티/건강"
+
+    # Dashboard export serializes buy_url, dedupes sources, and includes KR UI labels/tabs
+    kr_deal = ScoredDeal(
+        canonical_key="url:kr-dash",
+        primary=RawDeal(
+            source_id="dasaja_naver",
+            source_name="다사자 네이버 핫딜",
+            source_type="dasaja",
+            source_base_score=18,
+            category_hint="국내핫딜",
+            external_id="k1",
+            title="[네이버] 사과 2kg 4,900원",
+            url="https://dasaja.co.kr/saja_korea/610203",
+            buy_url="https://smartstore.naver.com/shop/products/12345",
+            region="KR",
+            retailer="네이버",
+            price_krw=4900,
+            shipping_label="무료배송",
+            discount_pct=45.0,
+        ),
+        merged_sources=["다사자 네이버 핫딜", "다사자 BEST 핫딜", "어미새 인기정보"],
+        score=95,
+        category_label_ko="🍔 식품/간식",
+    )
+    html_path, json_path = export_dashboard([kr_deal], usd_krw_rate=1345.0, output_dir=tmp_path / "dash")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["deals"][0]["buy_url"] == "https://smartstore.naver.com/shop/products/12345"
+    assert payload["deals"][0]["sources"] == ["다사자 네이버 핫딜", "어미새 인기정보"]
+    html_text = html_path.read_text(encoding="utf-8")
+    assert 'data-filter="kr"' in html_text
+    assert "🔍 네이버 최저가" in html_text
+    assert "📊 다나와 시세" in html_text
+    assert "🛒 바로 구매하기" in html_text
+    assert "effectiveKrw" in html_text
+

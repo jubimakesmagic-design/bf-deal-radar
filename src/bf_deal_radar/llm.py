@@ -14,10 +14,10 @@ from bf_deal_radar.security import is_safe_http_url, redact_secrets, register_se
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "You are an expert Black Friday overseas shopping analyst for Korean buyers. "
-    "Analyze the given US deal and respond ONLY with a JSON object containing:\n"
+    "You are an expert shopping deal analyst for Korean buyers covering both US overseas deals (Region=US) "
+    "and Korean domestic hot deals (Region=KR). Analyze the given deal and respond ONLY with a JSON object containing:\n"
     '{"korean_title": "concise Korean product title (max 45 chars)", '
-    '"summary_ko": "1-2 short Korean sentences on whether this discount is genuinely strong and any key caveat for Korean direct import (voltage, shipping, customs)", '
+    '"summary_ko": "1-2 short Korean sentences on whether this discount is genuinely strong; for Region=US mention key import caveats (voltage, shipping, customs) if applicable, and for Region=KR focus on Korean market price value & shipping without mentioning US customs/110V", '
     '"verdict": "one of: 찐역대가, 좋은할인, 무난함, 주의필요", '
     '"score_adjustment": integer between -15 and 10}'
 )
@@ -40,16 +40,32 @@ def _extract_json(text: str) -> dict | None:
 
 def _build_user_prompt(deal: ScoredDeal) -> str:
     p = deal.primary
-    lines = [
-        f"Title: {p.title}",
-        f"Sources: {', '.join(deal.merged_sources)}",
-        f"Retailer: {p.retailer or 'Unknown'}",
-        f"Price USD: {f'${p.price_usd:.2f}' if p.price_usd is not None else 'Unknown'}",
-        f"Original USD: {f'${p.original_price_usd:.2f}' if p.original_price_usd is not None else 'Unknown'}",
-        f"Discount %: {f'{p.discount_pct:.0f}%' if p.discount_pct is not None else 'Unknown'}",
-        f"Community/Rule Signals: {', '.join(deal.reasons) or 'None'}",
-        f"Description: {p.description[:350]}",
-    ]
+    if deal.is_domestic_kr:
+        lines = [
+            "Region: KR (Korean domestic hot deal)",
+            f"Title: {p.title}",
+            f"Sources: {', '.join(deal.merged_sources)}",
+            f"Retailer: {p.retailer or 'Unknown'}",
+            f"Price KRW: {f'{p.price_krw:,}원' if p.price_krw is not None else 'Unknown'}",
+            f"Shipping: {p.shipping_label or 'Unknown'}",
+            f"Discount %: {f'{p.discount_pct:.0f}%' if p.discount_pct is not None else 'Unknown'}",
+            f"Engagement: upvotes={p.thumb_score or 0}, comments={p.comment_count or 0}, views={p.view_count or 0}",
+            f"Community/Rule Signals: {', '.join(deal.reasons) or 'None'}",
+            f"Description: {p.description[:350]}",
+        ]
+    else:
+        lines = [
+            "Region: US (Overseas direct import)",
+            f"Title: {p.title}",
+            f"Sources: {', '.join(deal.merged_sources)}",
+            f"Retailer: {p.retailer or 'Unknown'}",
+            f"Price USD: {f'${p.price_usd:.2f}' if p.price_usd is not None else 'Unknown'}",
+            f"Original USD: {f'${p.original_price_usd:.2f}' if p.original_price_usd is not None else 'Unknown'}",
+            f"Discount %: {f'{p.discount_pct:.0f}%' if p.discount_pct is not None else 'Unknown'}",
+            f"Customs: {deal.customs.label if deal.customs else 'Unknown'}",
+            f"Community/Rule Signals: {', '.join(deal.reasons) or 'None'}",
+            f"Description: {p.description[:350]}",
+        ]
     return "\n".join(lines)
 
 

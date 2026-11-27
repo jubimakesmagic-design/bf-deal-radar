@@ -171,3 +171,42 @@ def test_feed_cache_and_http_304_handling(tmp_path: Path, monkeypatch):
     assert updates == []
     assert seen_headers.get("If-None-Match") == 'W/"abc"'
     assert seen_headers.get("If-Modified-Since") == "Fri, 27 Nov 2026 01:00:00 GMT"
+
+
+def test_per_host_concurrency_limit_and_timeout_retry(monkeypatch):
+    active = 0
+    peak = 0
+    attempts: dict[str, int] = {}
+
+    rss_body = (
+        b'<?xml version="1.0"?><rss><channel><item>'
+        b"<title>Test Deal $20</title><link>https://example.com/d/1</link>"
+        b"</item></channel></rss>"
+    )
+
+    async def _fake_get(self, url, headers=None, follow_redirects=True):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0.02)
+            attempts[url] = attempts.get(url, 0) + 1
+            if url.endswith("/flaky") and attempts[url] == 1:
+                raise httpx.ConnectTimeout("transient timeout")
+            req = httpx.Request("GET", url)
+            return httpx.Response(200, request=req, content=rss_body)
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    sources = [
+        SourceConfig(id=f"s{i}", name=f"Src {i}", type="generic", url=f"https://samehost.example/feed/{i}")
+        for i in range(5)
+    ] + [
+        SourceConfig(id="flaky", name="Flaky", type="generic", url="https://samehost.example/flaky"),
+    ]
+    deals, _ = asyncio.run(fetch_all_sources_with_cache(sources, max_per_host=2))
+    assert peak <= 2
+    assert len(deals) == 6
+    assert attempts["https://samehost.example/flaky"] == 2
+

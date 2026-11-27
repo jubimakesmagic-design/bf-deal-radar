@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import sys
 import time
@@ -13,6 +14,7 @@ from bf_deal_radar.exchange import fetch_usd_krw_rate
 from bf_deal_radar.notifier.telegram import TelegramNotifier, discover_chat_ids
 from bf_deal_radar.pipeline import run_once
 from bf_deal_radar.security import SecretRedactingFilter
+from bf_deal_radar.sources.korean import resolve_korean_buy_urls
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -126,6 +128,8 @@ def _cmd_dashboard(args: argparse.Namespace) -> int:
         limit_override=0,  # Don't spam stdout with individual cards
     )
     deals = report.all_qualified_deals[: args.limit]
+    if deals:
+        asyncio.run(resolve_korean_buy_urls(deals))
     html_path, json_path = export_dashboard(
         deals,
         usd_krw_rate=report.usd_krw_rate,
@@ -172,7 +176,7 @@ def _cmd_discover_chat_id(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bf-radar",
-        description="해외직구 & 블랙프라이데이 찐할인 레이더 (텔레그램 알리미)",
+        description="해외직구 & 국내 핫딜 찐할인 레이더 (텔레그램 알리미)",
     )
     parser.add_argument("--config", default="config.yaml", help="YAML 설정 파일 경로")
     parser.add_argument("--env", default=".env", help=".env 파일 경로")
@@ -194,9 +198,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_watch.add_argument("--limit", type=int, default=None, help="1회 최대 알림 개수")
     p_watch.set_defaults(func=_cmd_watch)
 
-    p_dash = sub.add_parser("dashboard", help="실시간 해외직구 핫딜 정적 HTML/JSON 대시보드 생성")
+    p_dash = sub.add_parser("dashboard", help="실시간 해외직구·국내 핫딜 정적 HTML/JSON 대시보드 생성")
     p_dash.add_argument("--output", default="docs", help="출력 디렉토리 (기본: docs)")
-    p_dash.add_argument("--min-score", type=int, default=55, help="표시할 최소 점수 (기본: 55)")
+    p_dash.add_argument("--min-score", type=int, default=70, help="표시할 최소 점수 (기본: 70)")
     p_dash.add_argument("--limit", type=int, default=50, help="최대 표시 딜 개수 (기본: 50)")
     p_dash.set_defaults(func=_cmd_dashboard)
 

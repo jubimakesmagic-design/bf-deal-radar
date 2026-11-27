@@ -27,8 +27,13 @@ _US_VOLTAGE_APPLIANCE_RE = re.compile(
     r"\b(?:espresso|coffee\s+maker|keurig|nespresso|air\s+fryer|blender|stand\s+mixer|"
     r"toaster|microwave|electric\s+kettle|rice\s+cooker|pressure\s+cooker|instant\s+pot|"
     r"space\s+heater|heater|hair\s+dryer|airwrap|supersonic|air\s+purifier|humidifier|"
-    r"dehumidifier|vacuum|oled\s+tv|qled\s+tv|smart\s+tv|led\s+tv|fire\s+tv|soundbar|"
+    r"dehumidifier|vacuum|oled\s+tv|qled\s+tv|qned\s+tv|smart\s+tv|led\s+tv|uhd\s+tv|"
+    r"fire\s+tv|google\s+tv|roku\s+tv|canvas\s*tv|mini[\s-]led\s+tv|soundbar|"
     r"subwoofer|av\s+receiver|amplifier|waffle\s+maker|slow\s+cooker|juicer|ice\s+maker)\b",
+    re.IGNORECASE,
+)
+_US_VOLTAGE_EXCLUDE_RE = re.compile(
+    r"\b(?:usb|battery|stick|apple\s+tv|tv\s+(?:mount|stand|remote|box|antenna|tuner|backlight))\b",
     re.IGNORECASE,
 )
 
@@ -184,13 +189,13 @@ _CATEGORY_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:headphone|earbud|airpods|soundbar|speaker|bose|sonos|sennheiser|beats|wh-1000xm)\b|이어폰|헤드폰|에어팟|스피커|마이크", re.I), "🎧 음향/오디오"),
     (re.compile(r"\b(?:smartwatch|garmin|apple\s+watch|smart\s+ring|ringconn|forerunner|fenix|fēnix|instinct)\b|애플워치|갤럭시워치", re.I), "⌚ 스마트워치/웨어러블"),
     (re.compile(r"\b(?:ipad|tablet|iphone|pixel|galaxy|kindle|e-reader)\b|아이패드|아이폰|갤럭시|태블릿", re.I), "📱 태블릿/모바일"),
-    (re.compile(r"\b(?:oled|qled|monitor|4k\s+tv|smart\s+tv|led\s+tv|projector|fire\s+tv)\b|모니터|(?:^|[\s\[\(])티비(?:$|[\s\]\)])", re.I), "🖥️ 모니터/TV"),
+    (re.compile(r"\b(?:oled|qled|qned|monitor|4k\s+tv|smart\s+tv|led\s+tv|uhd\s+tv|google\s+tv|roku\s+tv|canvas\s*tv|mini[\s-]led\s+tv|projector|fire\s+tv)\b|모니터|(?:^|[\s\[\(])티비(?:$|[\s\]\)])", re.I), "🖥️ 모니터/TV"),
     (re.compile(r"\b(?:ps5|playstation|nintendo|switch\s*2?|xbox|steam\s+deck|controller|lego)\b|스팀|닌텐도|플스|마인크래프트|레고", re.I), "🎮 게이밍"),
     (re.compile(r"\b(?:camera|gopro|dji|insta360|lens|drone)\b|카메라|드론", re.I), "📷 카메라/드론"),
     (re.compile(r"\b(?:charger|power\s+bank|gan|usb-c|hub|router|wi-fi|wifi|keyboard|mouse|airtag)\b|파워뱅크|보조배터리|충전기|키보드|마우스|보호필름", re.I), "🔌 주변기기/충전"),
     (re.compile(r"\b(?:smart\s+plug|thermostat|security\s+cam|solocam|vacuum|roborock|dyson|espresso|coffee\s+maker|heater|purifier|blender|air\s+fryer)\b|청소기|공기청정기|온풍기|가습기|드라이어|에스프레소", re.I), "🏠 스마트홈/가전"),
     (re.compile(r"\b(?:jacket|hoodie|sweater|sneakers?|running\s+shoes?|boots?|jeans?|denim|shirt|coat|parka|fleece|nike|adidas|arcteryx|arc'teryx|lululemon)\b|패딩|자켓|재킷|코트|후드|맨투맨|니트|데님|운동화|러닝화|스니커즈|부츠|아크테릭스|닥터마틴|보드숏|가방|백팩", re.I), "👕 패션/잡화"),
-    (re.compile(r"\b(?:shampoo|lotion|serum|sunscreen|vitamin|supplement|protein|perfume|skincare|toothpaste)\b|로션|선크림|샴푸|트리트먼트|치약|칫솔|화장품|세럼|비타민|멀티비타|비타|유산균|영양제|홍삼", re.I), "🧴 뷰티/건강"),
+    (re.compile(r"\b(?:shampoo|lotion|serum|sunscreen|spf|cream|moisturizer|cleanser|toner|vitamin|supplement|protein|perfume|skincare|cosmetics?|toothpaste)\b|로션|선크림|샴푸|트리트먼트|치약|칫솔|화장품|세럼|비타민|멀티비타|비타|유산균|영양제|홍삼", re.I), "🧴 뷰티/건강"),
     (re.compile(r"\b(?:tent|camping|hiking|golf|dumbbell|treadmill|bicycle|bike|cooler|yeti)\b|캠핑|등산|텐트|골프|자전거|텀블러", re.I), "🏕️ 스포츠/캠핑"),
     (re.compile(r"\b(?:drill|dewalt|makita|milwaukee|wrench|toolbox|dash\s*cam|wiper|tire)\b|전동드릴|스크루|공구|블랙박스|와이퍼|세차", re.I), "🚗 자동차/공구"),
     (re.compile(r"\b(?:diaper|stroller|pet\s+food|cat\s+litter|dog\s+food)\b|기저귀|분유|물티슈|고양이|강아지|사료", re.I), "🍼 육아/반려동물"),
@@ -652,9 +657,7 @@ def verify_and_score(
     # 10. Korean overseas-import practical heads-up badges (110V voltage & bulky freight)
     if (
         _US_VOLTAGE_APPLIANCE_RE.search(title_and_cat)
-        and "usb" not in title_lower
-        and "battery" not in title_lower
-        and "stick" not in title_lower
+        and not _US_VOLTAGE_EXCLUDE_RE.search(title_lower)
     ):
         deal.voltage_warning = "⚡ 미국 110~120V 전압 확인 필요 (프리볼트/변압기 체크)"
 

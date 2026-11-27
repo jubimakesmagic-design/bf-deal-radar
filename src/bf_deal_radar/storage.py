@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from bf_deal_radar.dedup import make_url_key
 from bf_deal_radar.models import ScoredDeal
 
 
@@ -119,6 +120,18 @@ class DealStorage:
         ).fetchone()
         return dict(row) if row else None
 
+    @staticmethod
+    def _candidate_keys(deal: ScoredDeal) -> list[str]:
+        """Return primary canonical_key plus URL keys for all merged sightings of this deal."""
+        keys: list[str] = [deal.canonical_key]
+        seen = {deal.canonical_key}
+        for url in [deal.primary.url, *deal.merged_urls.values()]:
+            url_key = make_url_key(url)
+            if url_key and url_key not in seen:
+                seen.add(url_key)
+                keys.append(url_key)
+        return keys
+
     def get_previous_low_price(self, item_key: str) -> float | None:
         row = self._conn.execute(
             "SELECT MIN(price_usd) AS min_price FROM price_history WHERE item_key = ?",
@@ -129,26 +142,38 @@ class DealStorage:
         return None
 
     def should_notify(self, deal: ScoredDeal, price_drop_renotify_ratio: float = 0.90) -> bool:
-        """Return True if this deal hasn't been notified yet, or dropped significantly in price."""
-        seen = self.get_seen(deal.canonical_key)
-        if seen is None:
+        """Return True if this deal (or any merged alias) hasn't been notified yet, or dropped >=10%."""
+        notified_rows: list[dict] = []
+        for key in self._candidate_keys(deal):
+            row = self.get_seen(key)
+            if row is not None and row["notified"]:
+                notified_rows.append(row)
+
+        if not notified_rows:
             return True
-        if not seen["notified"]:
-            # Previously recorded below threshold, now crossed threshold (e.g., upvotes/comments surged)
-            return True
-        # Already notified: only re-notify if price dropped >= 10% below previously notified price
+
+        # Already notified under primary or an alias key: only re-notify if price dropped >= 10%
+        # below the lowest previously notified price across matched keys.
         if deal.is_domestic_kr:
-            prev_krw = seen.get("price_krw")
             curr_krw = deal.primary.price_krw
-            if prev_krw is not None and curr_krw is not None and prev_krw > 0:
-                if curr_krw <= prev_krw * price_drop_renotify_ratio:
+            prev_krws = [
+                int(r["price_krw"])
+                for r in notified_rows
+                if r.get("price_krw") is not None and int(r["price_krw"]) > 0
+            ]
+            if prev_krws and curr_krw is not None:
+                if curr_krw <= min(prev_krws) * price_drop_renotify_ratio:
                     return True
             return False
 
-        prev_price = seen["price_usd"]
         curr_price = deal.primary.price_usd
-        if prev_price is not None and curr_price is not None and prev_price > 0:
-            if curr_price <= prev_price * price_drop_renotify_ratio:
+        prev_prices = [
+            float(r["price_usd"])
+            for r in notified_rows
+            if r["price_usd"] is not None and float(r["price_usd"]) > 0
+        ]
+        if prev_prices and curr_price is not None:
+            if curr_price <= min(prev_prices) * price_drop_renotify_ratio:
                 return True
         return False
 
@@ -161,12 +186,18 @@ class DealStorage:
             return float(row["price_usd"])
         return None
 
-    def record_deal(self, deal: ScoredDeal, notified: bool) -> None:
-        """Upsert a deal into seen_deals and record price_history only when the price changes."""
-        now_dt = datetime.now(timezone.utc)
-        now_iso = now_dt.isoformat()
+    def _upsert_seen_key(
+        self,
+        key: str,
+        deal: ScoredDeal,
+        url_for_key: str,
+        notified: bool,
+        now_dt: datetime,
+        now_iso: str,
+    ) -> bool:
+        """Upsert a single canonical_key into seen_deals when its state materially changed."""
         p = deal.primary
-        existing = self.get_seen(deal.canonical_key)
+        existing = self.get_seen(key)
 
         needs_seen_write = existing is None
         new_notified = 1 if notified else 0
@@ -201,57 +232,76 @@ class DealStorage:
                 or last_seen_stale
             )
 
+        if not needs_seen_write:
+            return False
+
+        if existing is None:
+            self._conn.execute(
+                """
+                INSERT INTO seen_deals (
+                    canonical_key, asin, title, url, price_usd, price_krw, score,
+                    notified, first_seen_at, last_seen_at, notified_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    key,
+                    p.asin,
+                    p.title,
+                    url_for_key,
+                    stored_price,
+                    stored_krw,
+                    new_score,
+                    new_notified,
+                    now_iso,
+                    now_iso,
+                    new_notified_at,
+                ),
+            )
+        else:
+            self._conn.execute(
+                """
+                UPDATE seen_deals
+                SET title = ?, url = ?, price_usd = ?, price_krw = ?, score = ?,
+                    notified = ?, last_seen_at = ?, notified_at = ?
+                WHERE canonical_key = ?
+                """,
+                (
+                    p.title,
+                    url_for_key,
+                    stored_price,
+                    stored_krw,
+                    new_score,
+                    new_notified,
+                    now_iso,
+                    new_notified_at,
+                    key,
+                ),
+            )
+        return True
+
+    def record_deal(self, deal: ScoredDeal, notified: bool) -> None:
+        """Upsert a deal (and any merged alias URLs when notified) and record changed price_history."""
+        now_dt = datetime.now(timezone.utc)
+        now_iso = now_dt.isoformat()
+        p = deal.primary
+
         needs_price_history = False
         if p.price_usd is not None:
             latest_price = self._latest_recorded_price(deal.canonical_key)
             needs_price_history = latest_price is None or abs(latest_price - p.price_usd) >= 0.01
 
-        if not needs_seen_write and not needs_price_history:
-            return
+        alias_pairs: list[tuple[str, str]] = [(deal.canonical_key, p.url)]
+        if notified:
+            seen_keys = {deal.canonical_key}
+            for url in [p.url, *deal.merged_urls.values()]:
+                url_key = make_url_key(url)
+                if url_key and url_key not in seen_keys:
+                    seen_keys.add(url_key)
+                    alias_pairs.append((url_key, url))
 
         with self._conn:
-            if existing is None:
-                self._conn.execute(
-                    """
-                    INSERT INTO seen_deals (
-                        canonical_key, asin, title, url, price_usd, price_krw, score,
-                        notified, first_seen_at, last_seen_at, notified_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        deal.canonical_key,
-                        p.asin,
-                        p.title,
-                        p.url,
-                        stored_price,
-                        stored_krw,
-                        new_score,
-                        new_notified,
-                        now_iso,
-                        now_iso,
-                        new_notified_at,
-                    ),
-                )
-            elif needs_seen_write:
-                self._conn.execute(
-                    """
-                    UPDATE seen_deals
-                    SET title = ?, url = ?, price_usd = ?, price_krw = ?, score = ?,
-                        notified = ?, last_seen_at = ?, notified_at = ?
-                    WHERE canonical_key = ?
-                    """,
-                    (
-                        p.title,
-                        p.url,
-                        stored_price,
-                        stored_krw,
-                        new_score,
-                        new_notified,
-                        now_iso,
-                        new_notified_at,
-                        deal.canonical_key,
-                    ),
-                )
+            for key, key_url in alias_pairs:
+                self._upsert_seen_key(key, deal, key_url, notified, now_dt, now_iso)
 
             if needs_price_history and p.price_usd is not None:
                 self._conn.execute(

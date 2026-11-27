@@ -63,15 +63,23 @@ def canonicalize_url(url: str) -> str:
     ))
 
 
+def make_url_key(url: str) -> str | None:
+    """Produce a stable URL-based deduplication key for a single deal URL."""
+    canon_url = canonicalize_url(url)
+    if not canon_url:
+        return None
+    digest = hashlib.sha1(canon_url.encode("utf-8")).hexdigest()[:16]
+    return f"url:{digest}"
+
+
 def make_canonical_key(deal: RawDeal) -> str:
     """Produce a stable deduplication key for a single deal."""
     if deal.asin:
         return f"asin:{deal.asin.upper()}"
 
-    canon_url = canonicalize_url(deal.url)
-    if canon_url:
-        digest = hashlib.sha1(canon_url.encode("utf-8")).hexdigest()[:16]
-        return f"url:{digest}"
+    url_key = make_url_key(deal.url)
+    if url_key:
+        return url_key
 
     tokens = sorted(normalize_title_tokens(deal.title))
     raw = " ".join(tokens[:10])
@@ -173,6 +181,10 @@ def _merge_cluster(cluster: list[RawDeal]) -> ScoredDeal:
             primary.thumb_score is None or item.thumb_score > primary.thumb_score
         ):
             primary.thumb_score = item.thumb_score
+        if item.downvote_count is not None and (
+            primary.downvote_count is None or item.downvote_count > primary.downvote_count
+        ):
+            primary.downvote_count = item.downvote_count
         if item.comment_count is not None and (
             primary.comment_count is None or item.comment_count > primary.comment_count
         ):
@@ -185,6 +197,8 @@ def _merge_cluster(cluster: list[RawDeal]) -> ScoredDeal:
             primary.is_sold_out = True
         if item.staff_pick:
             primary.staff_pick = True
+        if primary.buy_url is None and item.buy_url:
+            primary.buy_url = item.buy_url
         if primary.coupon_code is None and item.coupon_code:
             primary.coupon_code = item.coupon_code
         if primary.retailer is None and item.retailer:

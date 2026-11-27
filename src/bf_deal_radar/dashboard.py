@@ -11,12 +11,14 @@ from urllib.parse import quote_plus
 from bf_deal_radar.models import ScoredDeal
 from bf_deal_radar.parser import clean_kr_product_query, clean_product_query
 from bf_deal_radar.security import is_safe_http_url
+from bf_deal_radar.verifier import dedupe_source_labels
 
 
 def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
     """Serialize only public deal metadata (never secrets or user PII)."""
     p = deal.primary
     safe_url = p.url if is_safe_http_url(p.url) else ""
+    safe_buy_url = p.buy_url if (p.buy_url and is_safe_http_url(p.buy_url)) else ""
     if deal.is_domestic_kr:
         kr_q = quote_plus(clean_kr_product_query(p.title))
         camel_url = f"https://search.shopping.naver.com/search/all?query={kr_q}"
@@ -39,11 +41,12 @@ def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
         "summary_ko": deal.llm.summary_ko if deal.llm else "",
         "verdict": deal.llm.verdict if deal.llm else "",
         "url": safe_url,
+        "buy_url": safe_buy_url,
         "camel_url": camel_url,
         "keepa_url": keepa_url,
         "asin": p.asin,
         "retailer": p.retailer or ("국내몰" if deal.is_domestic_kr else "Overseas"),
-        "sources": deal.merged_sources,
+        "sources": dedupe_source_labels(deal.merged_sources),
         "score": deal.score,
         "category_label_ko": deal.category_label_ko,
         "price_usd": p.price_usd,
@@ -116,7 +119,7 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BF Deal Radar — 해외직구 찐할인 대시보드</title>
+  <title>BF Deal Radar — 해외직구 &amp; 국내 핫딜 찐할인 대시보드</title>
   <style>
     :root {
       --bg: #0b0f17;
@@ -232,7 +235,7 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   <div class="wrap">
     <header>
       <div>
-        <h1>🛰️ BF Deal Radar — 해외직구 찐할인 레이더</h1>
+        <h1>🛰️ BF Deal Radar — 해외직구 &amp; 국내 핫딜 찐할인 레이더</h1>
         <div class="sub" id="meta-line">데이터 로딩 중...</div>
       </div>
       <div class="stats" id="stats-bar"></div>
@@ -253,13 +256,15 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
     <section class="controls">
       <div class="tabs" id="filter-tabs">
         <button class="tab active" data-filter="all">전체</button>
+        <button class="tab" data-filter="kr">🇰🇷 국내핫딜</button>
+        <button class="tab" data-filter="us">🇺🇸 해외직구</button>
         <button class="tab" data-filter="watch">🚨 관심 키워드</button>
         <button class="tab" data-filter="tech">💻 IT/가전</button>
         <button class="tab" data-filter="dutyfree">✅ 면세 ($200 이하)</button>
         <button class="tab" data-filter="atl">🏆 역대 최저가</button>
       </div>
       <div class="calc-inputs">
-        <input id="search-input" type="search" placeholder="키워드 검색 (예: Garmin, SSD, Sony)" style="width:220px" />
+        <input id="search-input" type="search" placeholder="키워드 검색 (예: 쿠팡, AirPods, SSD)" style="width:230px" />
         <select id="sort-select" aria-label="Sort deals">
           <option value="score">점수 높은순</option>
           <option value="discount">할인율 높은순</option>
@@ -279,21 +284,29 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
     let currentFilter = "all";
 
     const fmtKrw = (v) => Math.round(v / 100) * 100;
+    const isKr = (d) => (d.region || "").toUpperCase() === "KR";
+    const effectiveKrw = (d) => {
+      if (d.price_krw != null) return d.price_krw;
+      if (d.price_usd != null) return d.price_usd * rate;
+      return Number.MAX_SAFE_INTEGER;
+    };
 
     function updateMeta() {
       const dt = DATA.generated_at ? new Date(DATA.generated_at).toLocaleString("ko-KR") : "-";
       document.getElementById("meta-line").textContent =
         `기준 환율 1 USD = ${rate.toLocaleString("ko-KR")}원 · 업데이트: ${dt}`;
       const stats = document.getElementById("stats-bar");
+      const krCnt = DATA.deals.filter(isKr).length;
+      const usCnt = DATA.deals.length - krCnt;
       const watchCnt = DATA.deals.filter(d => d.is_watch_match).length;
-      const dfCnt = DATA.deals.filter(d => d.is_duty_free === true).length;
       const atlCnt = DATA.deals.filter(d => d.is_historical_low).length;
       stats.replaceChildren();
       [
         `총 ${DATA.deals.length}건`,
+        `🇰🇷 국내 ${krCnt}건`,
+        `🇺🇸 직구 ${usCnt}건`,
         `🚨 관심 ${watchCnt}건`,
         `🏆 역대가 ${atlCnt}건`,
-        `✅ 면세 ${dfCnt}건`,
       ].forEach(txt => {
         const s = document.createElement("span");
         s.className = "pill";
@@ -321,12 +334,14 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
       const q = document.getElementById("search-input").value.trim().toLowerCase();
       const sort = document.getElementById("sort-select").value;
       let list = DATA.deals.filter(d => {
+        if (currentFilter === "kr" && !isKr(d)) return false;
+        if (currentFilter === "us" && isKr(d)) return false;
         if (currentFilter === "watch" && !d.is_watch_match) return false;
         if (currentFilter === "tech" && !d.is_tech) return false;
         if (currentFilter === "dutyfree" && d.is_duty_free !== true) return false;
         if (currentFilter === "atl" && !d.is_historical_low) return false;
         if (q) {
-          const hay = `${d.title} ${d.korean_title} ${d.retailer} ${(d.sources || []).join(" ")}`.toLowerCase();
+          const hay = `${d.title} ${d.korean_title} ${d.retailer} ${d.category_label_ko || ""} ${(d.sources || []).join(" ")}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
         return true;
@@ -334,8 +349,12 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
 
       list.sort((a, b) => {
         if (sort === "discount") return (b.discount_pct || 0) - (a.discount_pct || 0) || b.score - a.score;
-        if (sort === "price_asc") return (a.price_usd ?? 999999) - (b.price_usd ?? 999999);
-        return (b.is_watch_match ? 1 : 0) - (a.is_watch_match ? 1 : 0) || b.score - a.score;
+        if (sort === "price_asc") return effectiveKrw(a) - effectiveKrw(b) || b.score - a.score;
+        return (
+          b.score - a.score ||
+          (b.is_historical_low ? 1 : 0) - (a.is_historical_low ? 1 : 0) ||
+          (b.is_watch_match ? 1 : 0) - (a.is_watch_match ? 1 : 0)
+        );
       });
 
       const grid = document.getElementById("deals-grid");
@@ -349,6 +368,7 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
       }
 
       for (const d of list) {
+        const domestic = isKr(d);
         const card = document.createElement("article");
         card.className = "card";
 
@@ -356,10 +376,11 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
         top.className = "card-top";
         const sc = document.createElement("span");
         sc.className = "score" + (d.score >= 85 ? " high" : "");
-        sc.textContent = `${d.is_watch_match ? "🚨 " : ""}${d.score}점`;
+        sc.textContent = `${domestic ? "🇰🇷" : "🇺🇸"} ${d.is_watch_match ? "🚨 " : ""}${d.score}점`;
         const meta = document.createElement("span");
         meta.className = "meta";
-        meta.textContent = `${d.retailer} · ${(d.sources || []).slice(0, 2).join(", ")}`;
+        const catTxt = d.category_label_ko ? `${d.category_label_ko} · ` : "";
+        meta.textContent = `${catTxt}${d.retailer} · ${(d.sources || []).slice(0, 2).join(", ")}`;
         top.append(sc, meta);
 
         const title = document.createElement("h2");
@@ -370,18 +391,29 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
         priceRow.className = "price-row";
         const pr = document.createElement("span");
         pr.className = "price";
-        pr.textContent = d.price_usd != null ? `$${d.price_usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "가격 확인";
-        priceRow.appendChild(pr);
-        if (d.price_krw != null) {
-          const krw = document.createElement("span");
-          krw.className = "krw";
-          krw.textContent = `약 ${d.price_krw.toLocaleString("ko-KR")}원`;
-          priceRow.appendChild(krw);
+        if (domestic) {
+          pr.textContent = d.price_krw != null ? `${d.price_krw.toLocaleString("ko-KR")}원` : "가격 원글 확인";
+          priceRow.appendChild(pr);
+          if (d.price_usd != null) {
+            const usdSub = document.createElement("span");
+            usdSub.className = "krw";
+            usdSub.textContent = `($${d.price_usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
+            priceRow.appendChild(usdSub);
+          }
+        } else {
+          pr.textContent = d.price_usd != null ? `$${d.price_usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "가격 확인";
+          priceRow.appendChild(pr);
+          if (d.price_krw != null) {
+            const krw = document.createElement("span");
+            krw.className = "krw";
+            krw.textContent = `약 ${d.price_krw.toLocaleString("ko-KR")}원`;
+            priceRow.appendChild(krw);
+          }
         }
         if (d.discount_pct != null) {
           const off = document.createElement("span");
           off.className = "off";
-          off.textContent = `${Math.round(d.discount_pct)}% OFF`;
+          off.textContent = domestic ? `${Math.round(d.discount_pct)}% 할인` : `${Math.round(d.discount_pct)}% OFF`;
           priceRow.appendChild(off);
         } else if (d.savings_usd != null) {
           const off = document.createElement("span");
@@ -394,15 +426,27 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
         badges.className = "reasons";
         if (d.customs_label) {
           const b = document.createElement("span");
-          b.className = "badge " + (d.is_duty_free ? "ok" : "warn");
+          if (domestic) {
+            b.className = "badge" + (d.customs_label.includes("무료") ? " ok" : "");
+          } else {
+            b.className = "badge " + (d.is_duty_free ? "ok" : "warn");
+          }
           b.textContent = d.customs_label;
           badges.appendChild(b);
         }
-        if (d.voltage_warning) {
-          const v = document.createElement("span");
-          v.className = "badge warn";
-          v.textContent = d.voltage_warning;
-          badges.appendChild(v);
+        for (const warnText of [d.voltage_warning, d.bulky_warning, d.membership_warning]) {
+          if (warnText) {
+            const w = document.createElement("span");
+            w.className = "badge warn";
+            w.textContent = warnText;
+            badges.appendChild(w);
+          }
+        }
+        if (d.condition_warning) {
+          const cw = document.createElement("span");
+          cw.className = "badge warn";
+          cw.textContent = `⚠️ 상태 주의: ${d.condition_warning}`;
+          badges.appendChild(cw);
         }
         if (d.coupon_code) {
           const c = document.createElement("span");
@@ -419,32 +463,79 @@ _DASHBOARD_TEMPLATE = """<!DOCTYPE html>
 
         const actions = document.createElement("div");
         actions.className = "actions";
-        if (d.url) {
-          const a = document.createElement("a");
-          a.className = "btn primary";
-          a.href = d.url;
-          a.target = "_blank";
-          a.rel = "noopener noreferrer";
-          a.textContent = "🛒 딜 바로가기";
-          actions.appendChild(a);
-        }
-        if (d.camel_url) {
-          const c = document.createElement("a");
-          c.className = "btn";
-          c.href = d.camel_url;
-          c.target = "_blank";
-          c.rel = "noopener noreferrer";
-          c.textContent = "📈 가격추이(CCC)";
-          actions.appendChild(c);
-        }
-        if (d.keepa_url) {
-          const k = document.createElement("a");
-          k.className = "btn";
-          k.href = d.keepa_url;
-          k.target = "_blank";
-          k.rel = "noopener noreferrer";
-          k.textContent = "📊 Keepa";
-          actions.appendChild(k);
+        if (domestic) {
+          if (d.buy_url) {
+            const buy = document.createElement("a");
+            buy.className = "btn primary";
+            buy.href = d.buy_url;
+            buy.target = "_blank";
+            buy.rel = "noopener noreferrer";
+            buy.textContent = "🛒 바로 구매하기";
+            actions.appendChild(buy);
+            if (d.url) {
+              const post = document.createElement("a");
+              post.className = "btn";
+              post.href = d.url;
+              post.target = "_blank";
+              post.rel = "noopener noreferrer";
+              post.textContent = "💬 원글/댓글";
+              actions.appendChild(post);
+            }
+          } else if (d.url) {
+            const a = document.createElement("a");
+            a.className = "btn primary";
+            a.href = d.url;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            a.textContent = "🛒 핫딜 원글 보기";
+            actions.appendChild(a);
+          }
+          if (d.camel_url) {
+            const n = document.createElement("a");
+            n.className = "btn";
+            n.href = d.camel_url;
+            n.target = "_blank";
+            n.rel = "noopener noreferrer";
+            n.textContent = "🔍 네이버 최저가";
+            actions.appendChild(n);
+          }
+          if (d.keepa_url) {
+            const dn = document.createElement("a");
+            dn.className = "btn";
+            dn.href = d.keepa_url;
+            dn.target = "_blank";
+            dn.rel = "noopener noreferrer";
+            dn.textContent = "📊 다나와 시세";
+            actions.appendChild(dn);
+          }
+        } else {
+          if (d.url) {
+            const a = document.createElement("a");
+            a.className = "btn primary";
+            a.href = d.url;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            a.textContent = "🛒 딜 바로가기";
+            actions.appendChild(a);
+          }
+          if (d.camel_url) {
+            const c = document.createElement("a");
+            c.className = "btn";
+            c.href = d.camel_url;
+            c.target = "_blank";
+            c.rel = "noopener noreferrer";
+            c.textContent = "📈 가격추이(CCC)";
+            actions.appendChild(c);
+          }
+          if (d.keepa_url) {
+            const k = document.createElement("a");
+            k.className = "btn";
+            k.href = d.keepa_url;
+            k.target = "_blank";
+            k.rel = "noopener noreferrer";
+            k.textContent = "📊 Keepa";
+            actions.appendChild(k);
+          }
         }
 
         card.append(top, title, priceRow, badges, actions);

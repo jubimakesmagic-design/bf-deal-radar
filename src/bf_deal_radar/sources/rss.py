@@ -9,6 +9,7 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from urllib.parse import urlparse
 
 import httpx
 
@@ -251,6 +252,8 @@ async def _fetch_single_source(
     client: httpx.AsyncClient,
     source: SourceConfig,
     cache_entry: tuple[str | None, str | None] | None = None,
+    host_sem: asyncio.Semaphore | None = None,
+    retries: int = 1,
 ) -> tuple[list[RawDeal], tuple[str, str | None, str | None] | None]:
     if not is_safe_http_url(source.url):
         logger.warning("Skipping source with unsafe URL scheme: %s", source.name)
@@ -277,28 +280,41 @@ async def _fetch_single_source(
         if last_mod:
             headers["If-Modified-Since"] = last_mod
 
-    try:
-        resp = await client.get(source.url, headers=headers, follow_redirects=True)
-        if resp.status_code == 304:
-            logger.info("304 Not Modified (cached): %s", source.name)
+    for attempt in range(retries + 1):
+        try:
+            if host_sem is not None:
+                async with host_sem:
+                    resp = await client.get(source.url, headers=headers, follow_redirects=True)
+            else:
+                resp = await client.get(source.url, headers=headers, follow_redirects=True)
+
+            if resp.status_code == 304:
+                logger.info("304 Not Modified (cached): %s", source.name)
+                return [], None
+            resp.raise_for_status()
+            if len(resp.content) > MAX_FEED_BYTES:
+                logger.warning("Skipping oversized feed from %s (%d bytes)", source.name, len(resp.content))
+                return [], None
+            deals = (
+                parse_korean_board_html(resp.content, source)
+                if source.type in _KOREAN_HTML_TYPES
+                else parse_feed_xml(resp.content, source)
+            )
+            new_etag = resp.headers.get("etag")
+            new_lm = resp.headers.get("last-modified")
+            cache_update = (source.id, new_etag, new_lm) if (new_etag or new_lm) else None
+            logger.info("Fetched %d deals from %s", len(deals), source.name)
+            return deals, cache_update
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            if attempt < retries:
+                await asyncio.sleep(0.6 * (attempt + 1))
+                continue
+            logger.warning("Failed to fetch %s (%s): %s", source.name, type(exc).__name__, exc)
             return [], None
-        resp.raise_for_status()
-        if len(resp.content) > MAX_FEED_BYTES:
-            logger.warning("Skipping oversized feed from %s (%d bytes)", source.name, len(resp.content))
+        except Exception as exc:
+            logger.warning("Failed to fetch %s (%s): %s", source.name, type(exc).__name__, exc)
             return [], None
-        deals = (
-            parse_korean_board_html(resp.content, source)
-            if source.type in _KOREAN_HTML_TYPES
-            else parse_feed_xml(resp.content, source)
-        )
-        new_etag = resp.headers.get("etag")
-        new_lm = resp.headers.get("last-modified")
-        cache_update = (source.id, new_etag, new_lm) if (new_etag or new_lm) else None
-        logger.info("Fetched %d deals from %s", len(deals), source.name)
-        return deals, cache_update
-    except Exception as exc:
-        logger.warning("Failed to fetch %s (%s): %s", source.name, type(exc).__name__, exc)
-        return [], None
+    return [], None
 
 
 async def fetch_all_sources_with_cache(
@@ -306,17 +322,29 @@ async def fetch_all_sources_with_cache(
     *,
     feed_cache: dict[str, tuple[str | None, str | None]] | None = None,
     timeout: float = 12.0,
+    max_per_host: int = 4,
 ) -> tuple[list[RawDeal], list[tuple[str, str | None, str | None]]]:
-    """Fetch all enabled sources concurrently using optional ETag/Last-Modified cache."""
+    """Fetch all enabled sources concurrently with per-host throttling and optional ETag/Last-Modified cache."""
     enabled = [s for s in sources if s.enabled]
     if not enabled:
         return [], []
 
     cache_map = feed_cache or {}
+    host_sems: dict[str, asyncio.Semaphore] = {}
+
+    def _sem_for(url: str) -> asyncio.Semaphore:
+        host = (urlparse(url).hostname or "").lower()
+        if host not in host_sems:
+            host_sems[host] = asyncio.Semaphore(max(1, max_per_host))
+        return host_sems[host]
+
     limits = httpx.Limits(max_connections=24, max_keepalive_connections=12)
     async with httpx.AsyncClient(timeout=timeout, limits=limits, max_redirects=5) as client:
         results = await asyncio.gather(
-            *(_fetch_single_source(client, source, cache_map.get(source.id)) for source in enabled)
+            *(
+                _fetch_single_source(client, source, cache_map.get(source.id), host_sem=_sem_for(source.url))
+                for source in enabled
+            )
         )
 
     all_deals: list[RawDeal] = []

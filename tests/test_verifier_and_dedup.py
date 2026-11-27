@@ -180,3 +180,47 @@ def test_9to5_sister_sites_collapse_and_pcmag_roundup_penalized():
         verify_and_score(roundup, cfg, usd_krw_rate=1350.0, now=now)
         assert roundup.score < 55
 
+
+def test_cluster_merges_downvotes_and_buy_url_and_config_defaults(tmp_path):
+    from bf_deal_radar.config import load_config
+
+    now = datetime.now(timezone.utc)
+    d1 = RawDeal(
+        source_id="dasaja_coupang",
+        source_name="다사자 쿠팡 핫딜",
+        source_type="dasaja",
+        source_base_score=22,
+        category_hint="쿠팡핫딜",
+        external_id="d1",
+        title="[쿠팡] 테스트 노트북 거치대 알루미늄 15,900원",
+        url="https://dasaja.co.kr/saja_korea/999",
+        region="KR",
+        published_at=now,
+        price_krw=15900,
+    )
+    d2 = RawDeal(
+        source_id="dealbada_kr",
+        source_name="딜바다 국내핫딜",
+        source_type="dealbada",
+        source_base_score=18,
+        category_hint="국내핫딜",
+        external_id="db1",
+        title="[쿠팡] 테스트 노트북 거치대 알루미늄 15,900원",
+        url="https://www.dealbada.com/bbs/board.php?wr_id=999",
+        buy_url="https://www.coupang.com/vp/products/99999",
+        region="KR",
+        published_at=now,
+        price_krw=15900,
+        downvote_count=7,
+    )
+    clustered = cluster_deals([d1, d2])
+    assert len(clustered) == 1
+    assert clustered[0].primary.buy_url == "https://www.coupang.com/vp/products/99999"
+    assert clustered[0].primary.downvote_count == 7
+
+    # Missing YAML falls back to uniform 70/70 thresholds
+    cfg = load_config(config_path=tmp_path / "nonexistent.yaml", env_path=tmp_path / "no.env")
+    assert cfg.min_score == 70
+    assert cfg.kr_min_score == 70
+
+

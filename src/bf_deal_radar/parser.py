@@ -487,11 +487,14 @@ def normalize_kr_retailer(name: str | None) -> str | None:
             return label
     return cleaned[:20]
 
-_KR_WON_RE = re.compile(r"(?:₩\s*|(?<!\d))(\d{1,3}(?:,\d{3})+|\d{4,7})\s*원|₩\s*(\d{1,3}(?:,\d{3})+|\d{4,7})")
+_KR_WON_RE = re.compile(r"(?:₩\s*|(?<!\d))(\d{1,3}(?:,\d{3})+|\d{3,7})\s*원|₩\s*(\d{1,3}(?:,\d{3})+|\d{3,7})")
 _KR_MAN_WON_RE = re.compile(r"(?<!\d)(\d{1,3}(?:\.\d{1,2})?)\s*만\s*(?:(\d{1,4})\s*천?)?\s*원?")
 _KR_SLASH_PRICE_RE = re.compile(r"(\d{1,3}(?:,\d{3})+)\s*/\s*(?:무료|무배|와우|네멤|배송|유배|\d)")
 _KR_NON_ITEM_PREFIX_RE = re.compile(
     r"(?:배송비|택배비|적립|포인트|캐시백|쿠폰|추가\s*할인|즉시\s*할인|최대)\s*$"
+)
+_KR_NON_ITEM_SUFFIX_RE = re.compile(
+    r"^\s*(?:할인|쿠폰|적립|캐시백|페이백|포인트|추가\s*할인|즉시\s*할인|청구\s*할인)"
 )
 _KR_SOLD_OUT_RE = re.compile(
     r"(?:\[\s*(?:종료|품절|마감|끌올종료)\s*\]|\(\s*(?:종료|품절|마감)\s*\)|(?:품절|종료|마감)됨\b|^품절\b)",
@@ -510,14 +513,17 @@ def extract_krw_price(title: str, description: str = "") -> int | None:
     for text in (title, description[:200]):
         if not text:
             continue
-        # 1. Explicit "NN,NNN원" or "₩NN,NNN"
+        # 1. Explicit "NN,NNN원" or "₩NN,NNN" (including 100~999원 so min_price_krw filter catches tiny promos)
         for m in _KR_WON_RE.finditer(text):
             before = text[max(0, m.start() - 14) : m.start()]
+            after = text[m.end() : min(len(text), m.end() + 14)]
             if _KR_NON_ITEM_PREFIX_RE.search(before):
+                continue
+            if _KR_NON_ITEM_SUFFIX_RE.search(after):
                 continue
             digits = m.group(1) or m.group(2)
             val = int(digits.replace(",", ""))
-            if 500 <= val <= 50_000_000:
+            if 100 <= val <= 50_000_000:
                 return val
 
         # 2. "NN,NNN/무배" format without explicit 원
