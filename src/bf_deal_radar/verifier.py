@@ -47,10 +47,13 @@ _US_MEMBERSHIP_RE = re.compile(
 )
 
 _ROUNDUP_TITLE_RE = re.compile(
-    r"(?:\b(?:best\s+(?:amazon\s+)?black\s+friday\s+deals|deals\s+we(?:'ve|\s+have)\s+already\s+found|"
+    r"(?:^live:\s|\b(?:best\s+(?:amazon\s+)?(?:black\s+friday|thanksgiving|cyber\s+monday)\s+deals|"
+    r"\d+\+\s+of\s+the\s+best|deals\s+we(?:'ve|\s+have)\s+already\s+found|"
     r"deals\s+roundup|deals\s+hub|sale\s+now\s+live|deals\s+now\s+live|live\s+blog|"
-    r"everything\s+on\s+sale|top\s+\d+\s+deals|shopping\s+guide|in\s+my\s+cart:|"
-    r"every\s+current\s+model)\b|,\s*more\s*$)",
+    r"everything\s+on\s+sale|top\s+\d+\s+deals|shopping\s+guide|"
+    r"every\s+current\s+model)\b|"
+    r"\b(?:black\s+friday(?:\s+week)?|thanksgiving|cyber\s+monday)\s+deals:|"
+    r"\bin\s+my\s+cart:|,\s*more\s*$)",
     re.IGNORECASE,
 )
 
@@ -66,7 +69,10 @@ _PLATFORM_MAP = {
     "slickdeals": "Slickdeals",
     "dealnews": "DealNews",
     "techbargains": "TechBargains",
-    "9to5toys": "9to5Toys",
+    "9to5toys": "9to5",
+    "9to5mac": "9to5",
+    "9to5google": "9to5",
+    "pcmag": "PCMag",
     "the verge": "The Verge",
     "cnet": "CNET",
     "ign": "IGN",

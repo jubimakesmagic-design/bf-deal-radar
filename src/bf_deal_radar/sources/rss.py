@@ -258,9 +258,9 @@ async def _fetch_single_source(
 
     headers = {
         "User-Agent": (
-            "linux:bf-deal-radar:0.7"
+            "linux:bf-deal-radar:0.8"
             if source.type == "reddit"
-            else "BFDealRadar/0.7 (+https://github.com/jubimakesmagic-design/bf-deal-radar)"
+            else "BFDealRadar/0.8 (+https://github.com/jubimakesmagic-design/bf-deal-radar)"
         ),
         "Accept": (
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
@@ -313,7 +313,7 @@ async def fetch_all_sources_with_cache(
         return [], []
 
     cache_map = feed_cache or {}
-    limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+    limits = httpx.Limits(max_connections=24, max_keepalive_connections=12)
     async with httpx.AsyncClient(timeout=timeout, limits=limits, max_redirects=5) as client:
         results = await asyncio.gather(
             *(_fetch_single_source(client, source, cache_map.get(source.id)) for source in enabled)

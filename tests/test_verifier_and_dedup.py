@@ -128,3 +128,55 @@ def test_customs_threshold_calculation():
     assert taxable_tech.is_duty_free is False
     assert taxable_tech.estimated_tax_rate_low == 0.10
     assert taxable_tech.estimated_total_krw_low > taxable_tech.price_krw
+
+
+def test_9to5_sister_sites_collapse_and_pcmag_roundup_penalized():
+    now = datetime.now(timezone.utc)
+    cfg = _make_config()
+
+    # 9to5Toys + 9to5Mac must NOT earn a cross-site verification boost
+    sister = ScoredDeal(
+        canonical_key="url:9to5",
+        primary=RawDeal(
+            source_id="9to5mac",
+            source_name="9to5Mac Deals",
+            source_type="9to5toys",
+            source_base_score=14,
+            category_hint="IT/가전",
+            external_id="m1",
+            title="Apple AirPods Pro 3 drop to $149 at Amazon",
+            url="https://9to5mac.com/deals/airpods-pro-3",
+            published_at=now,
+            price_usd=149.0,
+            discount_pct=40.0,
+        ),
+        merged_sources=["9to5Mac Deals", "9to5Toys"],
+    )
+    verify_and_score(sister, cfg, usd_krw_rate=1350.0, now=now)
+    assert not any("교차 검증" in r for r in sister.reasons)
+
+    # PCMag LIVE roundup & 9to5 Thanksgiving roundup are heavily penalized
+    for title in (
+        "LIVE: 51+ of the Best Black Friday Tech Deals",
+        "Thanksgiving deals: M5 MacBook Air $400 off, AirPods Pro 3 $149",
+    ):
+        roundup = ScoredDeal(
+            canonical_key=f"url:{title[:10]}",
+            primary=RawDeal(
+                source_id="pcmag_deals",
+                source_name="PCMag Deals",
+                source_type="generic",
+                source_base_score=14,
+                category_hint="IT/가전",
+                external_id="p1",
+                title=title,
+                url="https://www.pcmag.com/deals/live-bf",
+                description="50% off all-time low deals roundup",
+                published_at=now,
+                discount_pct=50.0,
+            ),
+            merged_sources=["PCMag Deals"],
+        )
+        verify_and_score(roundup, cfg, usd_krw_rate=1350.0, now=now)
+        assert roundup.score < 55
+

@@ -98,6 +98,30 @@ sources:
     base_score: 14
     category_hint: "알리핫딜"
 
+  - name: "Slickdeals Fashion & Sneakers"
+    id: "slickdeals_fashion"
+    type: "slickdeals"
+    url: "https://slickdeals.net/newsearch.php?q=nike+OR+adidas+OR+patagonia+OR+north+face+OR+new+balance+OR+arcteryx&searcharea=deals&searchin=first&rss=1"
+    enabled: true
+    base_score: 15
+    category_hint: "패션/의류"
+
+  - name: "Slickdeals Apple & OLED/Audio"
+    id: "slickdeals_apple"
+    type: "slickdeals"
+    url: "https://slickdeals.net/newsearch.php?q=apple+OR+macbook+OR+ipad+OR+airpods+OR+sony+OR+oled&searcharea=deals&searchin=first&rss=1"
+    enabled: true
+    base_score: 15
+    category_hint: "IT/가전"
+
+  - name: "Slickdeals Home & Appliances"
+    id: "slickdeals_home"
+    type: "slickdeals"
+    url: "https://slickdeals.net/newsearch.php?q=dyson+OR+roborock+OR+kitchenaid+OR+breville+OR+lego+OR+yeti&searcharea=deals&searchin=first&rss=1"
+    enabled: true
+    base_score: 15
+    category_hint: "가전/홈"
+
   - name: "DealNews Home & Garden"
     id: "dealnews_home"
     type: "dealnews"
@@ -178,6 +202,30 @@ sources:
     base_score: 14
     category_hint: "IT/가전"
 
+  - name: "9to5Mac Deals"
+    id: "9to5mac"
+    type: "9to5toys"
+    url: "https://9to5mac.com/guides/deals/feed/"
+    enabled: true
+    base_score: 14
+    category_hint: "IT/가전"
+
+  - name: "9to5Google Deals"
+    id: "9to5google"
+    type: "9to5toys"
+    url: "https://9to5google.com/guides/deals/feed/"
+    enabled: true
+    base_score: 14
+    category_hint: "IT/가전"
+
+  - name: "PCMag Deals"
+    id: "pcmag_deals"
+    type: "generic"
+    url: "https://www.pcmag.com/feeds/rss/deals"
+    enabled: true
+    base_score: 14
+    category_hint: "IT/가전"
+
   - name: "The Verge Deals"
     id: "verge_deals"
     type: "verge"
@@ -230,6 +278,15 @@ sources:
     base_score: 18
     category_hint: "국내핫딜"
 
+  - name: "다사자 옥션 핫딜"
+    id: "dasaja_auction"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%EC%98%A5%EC%85%98"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
   - name: "다사자 11번가 핫딜"
     id: "dasaja_11st"
     type: "dasaja"
@@ -248,11 +305,47 @@ sources:
     base_score: 18
     category_hint: "국내핫딜"
 
+  - name: "다사자 토스쇼핑 핫딜"
+    id: "dasaja_toss"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%ED%86%A0%EC%8A%A4"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
+  - name: "다사자 오늘의집 핫딜"
+    id: "dasaja_ohouse"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%EC%98%A4%EB%8A%98%EC%9D%98%EC%A7%91"
+    enabled: true
+    base_score: 18
+    category_hint: "생활용품"
+
+  - name: "다사자 마켓컬리 핫딜"
+    id: "dasaja_kurly"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%EC%BB%AC%EB%A6%AC"
+    enabled: true
+    base_score: 18
+    category_hint: "식품/건강"
+
   - name: "다사자 무신사 핫딜"
     id: "dasaja_musinsa"
     type: "dasaja"
     region: "KR"
     url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%EB%AC%B4%EC%8B%A0%EC%82%AC"
+    enabled: true
+    base_score: 18
+    category_hint: "패션/의류"
+
+  - name: "다사자 29CM 핫딜"
+    id: "dasaja_29cm"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=29CM"
     enabled: true
     base_score: 18
     category_hint: "패션/의류"
@@ -265,6 +358,15 @@ sources:
     enabled: true
     base_score: 18
     category_hint: "건강/뷰티"
+
+  - name: "다사자 하이마트 핫딜"
+    id: "dasaja_himart"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%ED%95%98%EC%9D%B4%EB%A7%88%ED%8A%B8"
+    enabled: true
+    base_score: 18
+    category_hint: "PC/가전"
 
   - name: "다사자 BEST 핫딜"
     id: "dasaja_best"
@@ -349,13 +451,13 @@ sources:
     base_score: 18
     category_hint: "국내핫딜"
 
-  # 개드립 핫딜 게시판
+  # 개드립 핫딜은 GitHub Actions 클라우드 IP에서 403 제한되어 기본 비활성화 (로컬 실행 시 활성화 가능)
   - name: "개드립 핫딜"
     id: "dogdrip_hotdeal"
     type: "dogdrip"
     region: "KR"
     url: "https://www.dogdrip.net/hotdeal"
-    enabled: true
+    enabled: false
     base_score: 18
     category_hint: "국내핫딜"
 
