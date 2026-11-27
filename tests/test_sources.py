@@ -118,3 +118,34 @@ def test_parse_verge_atom_xml():
     assert d.savings_usd == 150.0
     assert d.published_at is not None
     assert "Wearable" in (d.category or "")
+
+
+def test_blog_lead_snippet_does_not_sever_dollar_savings_qualifier():
+    # Place "$100 price drop" right across the 420-character boundary so naive slicing would cut off "drop"
+    padding = "Amazon Black Friday deals are rolling out across top Apple and audio gear today. " * 4 + "Check this: "
+    desc_text = f"{padding}We are also tracking the brand new Beats 360 ANC headphones with a deep $100 price drop right now."
+    assert 405 <= desc_text.index("$100") <= 415
+
+    xml_bytes = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Beats 360 ANC headphones hit Black Friday low at $100 off</title>
+      <link>https://9to5toys.com/2026/11/27/beats-360-deal/</link>
+      <description>{desc_text}</description>
+      <pubDate>Fri, 27 Nov 2026 12:30:00 +0000</pubDate>
+      <guid>beats-360-1</guid>
+    </item>
+  </channel>
+</rss>
+""".encode("utf-8")
+
+    src = SourceConfig(id="9to5toys", name="9to5Toys", type="9to5toys", url="https://9to5toys.com/feed/", base_score=14)
+    deals = parse_feed_xml(xml_bytes, src)
+    assert len(deals) == 1
+    d = deals[0]
+    assert "$100 price drop" in d.description
+    assert d.price_usd is None
+    assert d.discount_pct is None
+    assert d.savings_usd == 100.0
+

@@ -52,13 +52,13 @@ _US_MEMBERSHIP_RE = re.compile(
 )
 
 _ROUNDUP_TITLE_RE = re.compile(
-    r"(?:^live:\s|\b(?:best\s+(?:amazon\s+)?(?:black\s+friday|thanksgiving|cyber\s+monday)\s+deals|"
+    r"(?:^live:\s|^deals\s*[:–—-]\s|\b(?:best\s+(?:amazon\s+)?(?:black\s+friday|thanksgiving|cyber\s+monday)\s+deals|"
     r"\d+\+\s+of\s+the\s+best|deals\s+we(?:'ve|\s+have)\s+already\s+found|"
     r"deals\s+roundup|deals\s+hub|sale\s+now\s+live|deals\s+now\s+live|live\s+blog|"
     r"everything\s+on\s+sale|top\s+\d+\s+deals|shopping\s+guide|"
     r"every\s+current\s+model)\b|"
     r"\b(?:black\s+friday(?:\s+week)?|thanksgiving|cyber\s+monday)\s+deals:|"
-    r"\bin\s+my\s+cart:|,\s*more\s*$)",
+    r"\bin\s+my\s+cart:|,\s*(?:much\s+)?more(?:\s+from\s+\$|\s*\[[^\]]+\]|\s*$))",
     re.IGNORECASE,
 )
 
@@ -752,6 +752,27 @@ def verify_and_score(
             sav_pts = 12
         elif sav >= 30:
             sav_pts = 6
+
+        # Cap dollar-savings points when the relative discount % is shallow (e.g. $300 off $3,399 = 8.8%)
+        # or when neither item price nor % off is known.
+        effective_pct = primary.discount_pct
+        if effective_pct is None and primary.price_usd is not None and primary.price_usd > 0:
+            orig_ref = (
+                primary.original_price_usd
+                if (primary.original_price_usd is not None and primary.original_price_usd > primary.price_usd)
+                else primary.price_usd + sav
+            )
+            if orig_ref > 0:
+                effective_pct = (sav / orig_ref) * 100.0
+
+        if effective_pct is not None:
+            if effective_pct < 10.0:
+                sav_pts = min(sav_pts, 8)
+            elif effective_pct < 15.0:
+                sav_pts = min(sav_pts, 14)
+        elif primary.price_usd is None:
+            sav_pts = min(sav_pts, 16)
+
         if sav_pts > discount_points:
             discount_points = sav_pts
             reasons.append(f"💵 ${sav:,.0f} 즉시 할인")

@@ -276,4 +276,107 @@ def test_us_price_mistake_fast_track_and_guards():
     assert dead.score < 70
 
 
+def test_shallow_dollar_savings_and_expanded_roundups_scored_conservatively():
+    now = datetime.now(timezone.utc)
+    cfg = _make_config()
+    cfg.min_score = 65
+    cfg.filters.watch_keywords.append("macbook")
+
+    # $300 off a $3,399 MacBook Pro (= 8.8% off) on a single blog post must not score like a 40% deal
+    shallow_mbp = ScoredDeal(
+        canonical_key="url:mbp-shallow",
+        primary=RawDeal(
+            source_id="9to5toys",
+            source_name="9to5Toys",
+            source_type="9to5toys",
+            source_base_score=14,
+            category_hint="IT/가전",
+            external_id="mbp-1",
+            title="New touchscreen PROLED XDR MacBook Pro hits Black Friday low at $300 off",
+            url="https://9to5toys.com/2026/11/27/proled-mbp/",
+            description="Dropped to $3,099 shipped (Regularly $3,399), a new all-time low.",
+            published_at=now,
+            price_usd=3099.0,
+            original_price_usd=3399.0,
+            savings_usd=300.0,
+        ),
+        merged_sources=["9to5Toys"],
+    )
+    verify_and_score(shallow_mbp, cfg, usd_krw_rate=1350.0, now=now)
+    assert shallow_mbp.score < 65
+
+    # Price-less single blog "$300 off" post also stays below 65 until price or second source confirms
+    priceless_mbp = ScoredDeal(
+        canonical_key="url:mbp-priceless",
+        primary=RawDeal(
+            source_id="9to5toys",
+            source_name="9to5Toys",
+            source_type="9to5toys",
+            source_base_score=14,
+            category_hint="IT/가전",
+            external_id="mbp-2",
+            title="New touchscreen PROLED XDR MacBook Pro hits Black Friday low at $300 off",
+            url="https://9to5toys.com/2026/11/27/proled-mbp-2/",
+            description="New all-time low with a solid $300 in savings.",
+            published_at=now,
+            savings_usd=300.0,
+        ),
+        merged_sources=["9to5Toys"],
+    )
+    verify_and_score(priceless_mbp, cfg, usd_krw_rate=1350.0, now=now)
+    assert priceless_mbp.score < 65
+
+    # Genuine deep $300 off ($1,299 -> $999 MacBook Air = 23.1% off) STILL crosses 65+
+    deep_air = ScoredDeal(
+        canonical_key="url:mba-deep",
+        primary=RawDeal(
+            source_id="9to5toys",
+            source_name="9to5Toys",
+            source_type="9to5toys",
+            source_base_score=14,
+            category_hint="IT/가전",
+            external_id="mba-1",
+            title="Most affordable M5 MacBook Air now at $300 off for Black Friday",
+            url="https://9to5toys.com/2026/11/27/mba-999/",
+            description="Now down to $999 shipped (Reg. $1,299), matching its all-time low.",
+            published_at=now,
+            price_usd=999.0,
+            original_price_usd=1299.0,
+            discount_pct=23.1,
+            savings_usd=300.0,
+        ),
+        merged_sources=["9to5Toys"],
+    )
+    verify_and_score(deep_air, cfg, usd_krw_rate=1350.0, now=now)
+    assert deep_air.score >= 65
+
+    # Expanded multi-deal roundups ("Deals: ... more from $13", "... much more") get roundup penalty
+    for title in (
+        "Deals: M5 MacBook Air $250 off, Apple Watch Ultra 4, more from $13",
+        "Deals: Nothing early Black Friday now live – Headphone (a) 45% off, Buds Neo $17, much more",
+    ):
+        roundup = ScoredDeal(
+            canonical_key=f"url:{title[:16]}",
+            primary=RawDeal(
+                source_id="9to5mac",
+                source_name="9to5Mac Deals",
+                source_type="9to5toys",
+                source_base_score=14,
+                category_hint="IT/가전",
+                external_id="r-1",
+                title=title,
+                url="https://9to5mac.com/deals/roundup",
+                description="All-time low deals roundup",
+                published_at=now,
+                discount_pct=45.0,
+                savings_usd=250.0,
+            ),
+            merged_sources=["9to5Mac Deals"],
+        )
+        verify_and_score(roundup, cfg, usd_krw_rate=1350.0, now=now)
+        assert roundup.score < 55
+        assert roundup.is_watch_match is False
+
+
+
 

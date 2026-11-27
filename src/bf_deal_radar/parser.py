@@ -51,20 +51,47 @@ _PCT_OFF_RE = re.compile(
     r"(?<!up\s)(?<!to\s)(?:save\s+)?(\d{1,2})\s*%\s*(?:off|discount|savings?)",
     re.IGNORECASE,
 )
-_UP_TO_PCT_RE = re.compile(r"\bup\s+to\s+\d{1,2}\s*%\s*off\b", re.IGNORECASE)
+_UP_TO_PCT_RE = re.compile(
+    r"\bup\s+to\s+(?:nearly\s+|almost\s+)?\d{1,2}\s*%\s*off\b",
+    re.IGNORECASE,
+)
+
+# Ignore vague ("up to $200 off", "save up to $300") and capped ("maximum discount of $60") promos
+_VAGUE_OR_CAPPED_SAVINGS_RE = re.compile(
+    r"(?:\bup\s+to\s+(?:nearly\s+|almost\s+)?\$\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?"
+    r"(?:\s*(?:[-–—]?\s*(?:off\b|discount|savings?|price\s+(?:drop|cut|reduction|slash)|markdown)|"
+    r"in\s+(?:(?:total|instant|direct|combined|additional|extra|bonus|black\s+friday|holiday|early)\s+){0,2}"
+    r"(?:savings?|discounts?)))?"
+    r"|\b(?:save|saves|saving)\s+up\s+to\s+\$\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?\b"
+    r"|\bmax(?:imum)?\s+(?:discount|savings?)\s+of\s+\$\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?\b)",
+    re.IGNORECASE,
+)
 
 _SAVINGS_USD_RE = re.compile(
-    r"(?:save\s+\$|cut\s+\$|rare\s+\$|extra\s+\$|take\s+\$|\$)(\d{1,4}(?:,\d{3})*(?:\.\d{1,2})?)\s*"
-    r"(?:off|discount|savings?|price\s+drop)",
+    r"(?:save\s+\$|cut\s+\$|rare\s+\$|extra\s+\$|take\s+\$|\$)"
+    r"(\d{1,4}(?:,\d{3})*(?:\.\d{1,2})?)\s*"
+    r"(?:[-–—]?\s*(?:off\b|discount|savings?|price\s+(?:drop|cut|reduction|slash|markdown)|markdown)|"
+    r"(?:straight|right|directly)\s+off\b|"
+    r"(?:instant|total)\s+(?:savings?|discount)|"
+    r"in\s+(?:(?:total|instant|direct|combined|additional|extra|bonus|black\s+friday|holiday|early)\s+){0,2}"
+    r"(?:savings?|discounts?))",
     re.IGNORECASE,
 )
 _SAVE_PREFIX_USD_RE = re.compile(
-    r"(?:save|saves|saving|discount\s+of|cut\s+by|drops?\s+by)\s+\$(\d{1,4}(?:,\d{3})*(?:\.\d{1,2})?)\b",
+    r"(?:(?:save|saves|saving)\s+(?:(?:you|buyers?|shoppers?|customers?|nearly|almost|over|around|about|"
+    r"an?|extra|additional|solid|rare|massive|huge|whopping|flat|instant|total)\s+){0,3}|"
+    r"(?:discount|savings?|price\s+drop|price\s+cut|markdown|reduction)\s+of\s+|"
+    r"(?:cut|cuts|cutting|slashed?|reduced?|discounted|drops?|dropped|dropping|down|lowered)\s+by\s+"
+    r"(?:(?:an?|extra|additional)\s+){0,2})"
+    r"\$(\d{1,4}(?:,\d{3})*(?:\.\d{1,2})?)\b",
     re.IGNORECASE,
 )
 
 _ORIGINAL_PRICE_RE = re.compile(
-    r"(?:was|reg\.?|regular(?:ly)?|normally|list(?:\s+price)?|msrp|orig\.?|down\s+from|retail(?:s\s+for)?)\s*"
+    r"(?:was|reg\.?|regular(?:ly)?(?:\s+costs?|\s+priced(?:\s+at)?)?|"
+    r"normally(?:\s+costs?|\s+sells?\s+for)?|usually(?:\s+costs?|\s+sells?\s+for)?|"
+    r"typically(?:\s+costs?|\s+sells?\s+for)?|list(?:\s+price)?(?:\s+of)?|msrp(?:\s+of)?|"
+    r"orig\.?|down\s+from|retail(?:s\s+(?:at|for))?)\s*"
     r"\$(\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?)",
     re.IGNORECASE,
 )
@@ -72,13 +99,41 @@ _ORIGINAL_PRICE_RE = re.compile(
 # Prices preceded by shipping/minimum spend/savings qualifiers should not be treated as the item price
 _NON_ITEM_PRICE_PREFIX_RE = re.compile(
     r"(?:w/|with|orders?(?:\s+over|\s+of)?|spend|shipping\s+(?:over|on|w/)|free\s+shipping\s+w/|"
-    r"save|saves|saving|off|credit|rebate|gift\s+card|cash\s*back|coupon\s+of|under|over|plus|"
-    r"up\s+to|extra|rare|taking|takes|cut|cuts|drops?\s+by|shave|shaves|worth)\s*$",
+    r"save|saves|saving|off|credit|rebate|gift\s+card|cash\s*back|"
+    r"(?:coupon|discount|savings?|price\s+drop|price\s+cut|markdown|reduction|rebate|credit|bonus)\s+of|"
+    r"under|over|plus|up\s+to|extra|rare|taking|takes|cut|cuts|cutting|slash|slashes|slashing|"
+    r"knock|knocks|knocking|shave|shaves|shaving|worth|"
+    r"(?:cut|slashed|reduced|discounted|drops?|dropped|dropping|down|lowered)\s+by|"
+    r"(?:save|saves|saving|knock|knocks|knocking|shave|shaves|shaving|take|takes|taking)\s+"
+    r"(?:(?:you|buyers?|shoppers?|customers?|up\s+to|nearly|almost|over|around|about|roughly|"
+    r"an?|extra|additional|solid|rare|massive|huge|whopping|flat|direct|instant|total)\s+){1,3})\s*$",
     re.IGNORECASE,
 )
 _NON_ITEM_PRICE_SUFFIX_RE = re.compile(
-    r"^\s*(?:off|discount|savings?|price\s+drop|gift\s*card|credit|cash\s*back|back|reward|"
-    r"minimum|min\b|\+\s*order|shipping|less\b|below\b|under\b)",
+    r"^\s*(?:[-–—]?\s*(?:off\b|discount|savings?|price\s+(?:drop|cut|reduction|slash|markdown)|"
+    r"markdown|drop\b|cut\b|reduction\b|slash\b)|"
+    r"(?:straight|right|directly)\s+off\b|"
+    r"(?:in\s+)?(?:(?:total|instant|direct|combined|additional|extra|bonus|black\s+friday|holiday|early)\s+){0,2}"
+    r"(?:savings?|discounts?|credit|rewards?|cash\s*back|rebates?)|"
+    r"(?:store|amazon|best\s+buy|target|walmart|apple|samsung|google|promo(?:tional)?|"
+    r"statement|account|bill|trade[\s-]in|instant|bonus)\s+"
+    r"(?:e?-?gift\s*card|gift\s*card|credit|voucher|coupon|rebate|bonus|reward)|"
+    r"e?-?gift\s*card|gift\s*card|credit|rebate|cash\s*back|"
+    r"back\b(?!\s+(?:in\s+stock|at\b|to\b|on\s+sale|down\b|for\b))|"
+    r"reward|voucher|coupon|promo\b|trade[\s-]in|value\b|"
+    r"minimum|min\b|\+\s*order|shipping|less\b|below\b|under\b|cheaper\b|lower\b|more\b)",
+    re.IGNORECASE,
+)
+
+# Explicit sale-price cues required before accepting a description price equal to title savings
+_EXPLICIT_SALE_PRICE_PREFIX_RE = re.compile(
+    r"(?:down\s+to|dropped\s+to|drops?\s+to|discounted\s+to|reduced\s+to|slashed\s+to|"
+    r"cut\s+to|marked\s+down\s+to|priced\s+at|on\s+sale\s+for|buy\s+(?:it\s+)?for|"
+    r"now\s+(?:just\s+|only\s+)?|down\s+at|for\s+(?:just|only))\s*$",
+    re.IGNORECASE,
+)
+_EXPLICIT_SALE_PRICE_SUFFIX_RE = re.compile(
+    r"^\s*(?:prime\s+)?shipped\b",
     re.IGNORECASE,
 )
 
@@ -231,29 +286,55 @@ def extract_coupon_code(raw_html: str = "", plain_text: str = "") -> str | None:
     return None
 
 
-def _extract_item_price(text: str) -> float | None:
-    """Extract the most likely product sale price from text, ignoring '$X off' or 'w/ $35'."""
+def _excluded_price_spans(text: str) -> list[tuple[int, int]]:
+    """Return character spans already classified as savings, capped promos, or original prices."""
+    spans: list[tuple[int, int]] = []
+    for regex in (_ORIGINAL_PRICE_RE, _SAVINGS_USD_RE, _SAVE_PREFIX_USD_RE, _VAGUE_OR_CAPPED_SAVINGS_RE):
+        for match in regex.finditer(text):
+            spans.append(match.span())
+    return spans
+
+
+def _extract_item_price(text: str, *, suspicious_savings: float | None = None) -> float | None:
+    """Extract the most likely product sale price from text, ignoring '$X off' or 'w/ $35'.
+
+    When `suspicious_savings` is provided (e.g. a title-level '$300 off' with no title price),
+    any description dollar amount matching that exact savings value requires an explicit
+    sale-price cue (e.g. 'down to $300', '$300 shipped') so re-stated savings text cannot
+    masquerade as the item price and fabricate a 50% discount.
+    """
     if not text:
         return None
 
+    excluded_spans = _excluded_price_spans(text)
+
     for match in _DOLLAR_PRICE_RE.finditer(text):
         start, end = match.span()
-        before = text[max(0, start - 28) : start]
-        after = text[end : min(len(text), end + 24)]
+        if any(s <= start < e for s, e in excluded_spans):
+            continue
+        before = text[max(0, start - 40) : start]
+        after = text[end : min(len(text), end + 36)]
         if _NON_ITEM_PRICE_PREFIX_RE.search(before):
             continue
         if _NON_ITEM_PRICE_SUFFIX_RE.search(after):
             continue
-        # Avoid "was $399" / "reg $399" being picked as sale price
+        # Avoid "was $399" / "reg $399" / "regularly $3,399" / "from $48" being picked as sale price
         if re.search(
-            r"(?:was|reg\.?|normally|list(?:\s+price)?|msrp|orig\.?|from)\s*$",
+            r"(?:was|reg\.?|regular(?:ly)?|normally|usually|list(?:\s+price)?|msrp|orig\.?|from)\s*$",
             before,
             re.IGNORECASE,
         ):
             continue
         val = _to_float(match.group(1))
-        if 0.5 <= val <= 25000:
-            return val
+        if not (0.5 <= val <= 25000):
+            continue
+        if suspicious_savings is not None and abs(val - suspicious_savings) < 0.01:
+            if not (
+                _EXPLICIT_SALE_PRICE_PREFIX_RE.search(before)
+                or _EXPLICIT_SALE_PRICE_SUFFIX_RE.search(after)
+            ):
+                continue
+        return val
     return None
 
 
@@ -274,12 +355,7 @@ def _extract_pct_from(text: str) -> float | None:
 def _extract_savings_from(text: str) -> float | None:
     if not text:
         return None
-    cleaned = re.sub(
-        r"\bup\s+to\s+\$\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?\s*off\b",
-        " ",
-        text,
-        flags=re.IGNORECASE,
-    )
+    cleaned = _VAGUE_OR_CAPPED_SAVINGS_RE.sub(" ", text)
     savings_vals: list[float] = []
     for regex in (_SAVINGS_USD_RE, _SAVE_PREFIX_USD_RE):
         for m in regex.finditer(cleaned):
@@ -300,11 +376,16 @@ def extract_price_info(
     referencing other deals don't corrupt single-item discount calculations.
     """
     info = PriceInfo(price_usd=explicit_price)
+    title_savings = _extract_savings_from(title)
 
+    price_from_description = False
     if info.price_usd is None:
         info.price_usd = _extract_item_price(title)
     if info.price_usd is None:
-        info.price_usd = _extract_item_price(description)
+        desc_price = _extract_item_price(description, suspicious_savings=title_savings)
+        if desc_price is not None:
+            info.price_usd = desc_price
+            price_from_description = True
 
     # Original / list price (prefer title first, then description)
     orig_match = _ORIGINAL_PRICE_RE.search(title) or _ORIGINAL_PRICE_RE.search(description)
@@ -319,7 +400,6 @@ def extract_price_info(
         info.discount_pct = _extract_pct_from(description)
 
     # Dollar savings ($X off / save $X) — prefer title; sanity-check description-only savings
-    title_savings = _extract_savings_from(title)
     if title_savings is not None:
         info.savings_usd = title_savings
     else:
@@ -328,6 +408,27 @@ def extract_price_info(
             # Guard against blog intro bleed (e.g., "$400 off MacBook" bleeding onto a "$379 iPad")
             if info.price_usd is None or desc_savings <= info.price_usd * 2.0:
                 info.savings_usd = desc_savings
+
+    # Symmetric bleed guard: when title only states "$X off" and description yields a tiny unrelated
+    # price (e.g., "$9 Polishing Cloth" bleeding onto "$250 off MacBook"), do not fabricate 96% OFF.
+    if (
+        price_from_description
+        and info.price_usd is not None
+        and title_savings is not None
+        and info.original_price_usd is None
+        and info.discount_pct is None
+        and title_savings > info.price_usd * 2.0
+    ):
+        info.price_usd = None
+
+    # Discard mismatched unit original prices (e.g., "$14.99/mo" paired with "$50 off 6 months")
+    if (
+        info.price_usd is None
+        and info.original_price_usd is not None
+        and info.savings_usd is not None
+        and info.savings_usd >= info.original_price_usd
+    ):
+        info.original_price_usd = None
 
     # Derive missing fields consistently
     if info.price_usd is not None and info.original_price_usd is not None:

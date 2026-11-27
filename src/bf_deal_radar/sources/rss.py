@@ -113,6 +113,26 @@ def _extract_image_url(cmap: dict[str, list[ET.Element]], raw_html: str) -> str 
     return None
 
 
+def _truncate_lead_snippet(text: str, max_chars: int = 420) -> str:
+    """Truncate blog RSS descriptions cleanly without slicing mid-word or right after a '$' amount."""
+    if len(text) <= max_chars:
+        return text
+    cut = max_chars
+    # If a dollar amount appears within the trailing 32 chars, extend past its qualifier
+    # so phrases like "$100 price drop" or "$300 in total savings" are never severed.
+    tail_start = max(0, cut - 32)
+    last_dollar = text.rfind("$", tail_start, cut)
+    if last_dollar != -1:
+        target = min(len(text), last_dollar + 36)
+        next_space = text.find(" ", target)
+        cut = next_space if (next_space != -1 and next_space <= last_dollar + 48) else target
+    else:
+        prev_space = text.rfind(" ", max(0, cut - 24), cut)
+        if prev_space > 0:
+            cut = prev_space
+    return text[:cut].strip()
+
+
 def parse_feed_xml(xml_bytes: bytes, source: SourceConfig) -> list[RawDeal]:
     """Parse RSS 2.0 or Atom XML bytes into structured RawDeal objects."""
     try:
@@ -195,7 +215,7 @@ def parse_feed_xml(xml_bytes: bytes, source: SourceConfig) -> list[RawDeal]:
             cats = [c for c in cats if c]
             category = ", ".join(cats[:3]) if cats else None
             # Blog feeds (9to5Toys, Verge) append unrelated "More Deals" footers; keep only the lead snippet
-            plain_desc = strip_html(desc_raw or encoded_raw)[:380]
+            plain_desc = _truncate_lead_snippet(strip_html(desc_raw or encoded_raw), max_chars=420)
 
         # Extract embedded direct Amazon link if feed links to an article/aggregator
         amazon_href = ""
