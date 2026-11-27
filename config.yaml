@@ -7,6 +7,8 @@ radar:
   # - 66~72: 진짜 할인 폭이 크거나 역대가 검증된 딜 위주 (최적 기본값)
   # - 80+: 초특가 / 교차검증 역대가만 수신
   min_score: 66
+  # 국내 핫딜(쿠팡·네이버·지마켓·롯데온 등 전 품목) 최소 알림 점수
+  kr_min_score: 56
 
   # 한 번 실행 시 최대 발송 알림 수 (첫 실행 시 알림 폭탄 방지)
   max_alerts_per_run: 8
@@ -14,9 +16,11 @@ radar:
   # 이 시간(시간 단위) 이내 올라온 최신 딜만 알림 대상
   max_age_hours: 18
 
-  # 가격 상한/하한 필터 (USD, null이면 제한 없음)
+  # 가격 상한/하한 필터 (USD / KRW, null이면 제한 없음)
   min_price_usd: 5.0
   max_price_usd: null
+  # 국내 5원/10원/500원 포인트 적립 스팸 자동 차단
+  min_price_krw: 3000
 
   # 관부가세 면세 기준 (미국 목록통관 $200)
   us_customs_threshold_usd: 200.0
@@ -126,10 +130,39 @@ sources:
     base_score: 13
     category_hint: "IT/게이밍"
 
+  # === 🇰🇷 국내 핫딜 커뮤니티 (쿠팡·네이버·G마켓·11번가·롯데온·SSG 등 전 품목) ===
+  - name: "루리웹 핫딜"
+    id: "ruliweb_hotdeal"
+    type: "ruliweb"
+    region: "KR"
+    url: "https://bbs.ruliweb.com/market/board/1020"
+    enabled: true
+    base_score: 22
+    category_hint: "국내핫딜"
+
+  - name: "클리앙 알뜰구매"
+    id: "clien_jirum"
+    type: "clien"
+    region: "KR"
+    url: "https://www.clien.net/service/board/jirum"
+    enabled: true
+    base_score: 20
+    category_hint: "국내핫딜"
+
+  - name: "딜바다 국내핫딜"
+    id: "dealbada_kr"
+    type: "dealbada"
+    region: "KR"
+    url: "https://www.dealbada.com/bbs/board.php?bo_table=deal_domestic"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
   # 로컬 PC / 홈서버 IP에서 실행 시 활성화 가능 (GitHub Actions IP는 Reddit 429 제한 가능)
   - name: "Reddit r/buildapcsales"
     id: "reddit_bapcs"
     type: "reddit"
+    region: "US"
     url: "https://www.reddit.com/r/buildapcsales/hot.rss"
     enabled: false
     base_score: 16
@@ -281,6 +314,32 @@ filters:
     - "starbucks"
     - "dunkin"
 
+  # [국내 제외 키워드] 네이버페이 5원 클릭/라방/퀴즈/렌탈/보험/대출 등 비상품 노이즈 자동 차단
+  kr_exclude_keywords:
+    - "네이버페이"
+    - "일일적립"
+    - "라이브예고"
+    - "라방"
+    - "랜덤"
+    - "클릭 적립"
+    - "클릭적립"
+    - "출석체크"
+    - "출첵"
+    - "퀴즈"
+    - "설문"
+    - "포인트 받기"
+    - "포인트 적립"
+    - "렌탈"
+    - "보험"
+    - "대출"
+    - "상담 신청"
+    - "사전예약 이벤트"
+    - "사전등록"
+    - "체험단"
+    - "응모"
+    - "추첨"
+    - "일시 무료"
+
   # 리퍼/오픈박스/중고 상품 감점 (완전 제외하려면 위 exclude_keywords에 추가)
   condition_penalty_keywords:
     - "refurbished"
@@ -291,6 +350,12 @@ filters:
     - "pre-owned"
     - "used"
     - "scratch & dent"
+
+# 선택: 네이버 쇼핑 검색 API 시세 자동 대조 (NAVER_CLIENT_ID/SECRET 설정 시 자동 동작)
+naver:
+  enabled: true
+  max_calls_per_run: 10
+  timeout_seconds: 8
 
 # 선택: LLM 한국어 요약 & 찐할인 검증 (API 키가 있을 때만 자동 동작)
 llm:

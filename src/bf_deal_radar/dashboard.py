@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 from bf_deal_radar.models import ScoredDeal
-from bf_deal_radar.parser import clean_product_query
+from bf_deal_radar.parser import clean_kr_product_query, clean_product_query
 from bf_deal_radar.security import is_safe_http_url
 
 
@@ -17,15 +17,23 @@ def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
     """Serialize only public deal metadata (never secrets or user PII)."""
     p = deal.primary
     safe_url = p.url if is_safe_http_url(p.url) else ""
-    camel_url = (
-        deal.camel_url
-        if (deal.camel_url and is_safe_http_url(deal.camel_url))
-        else f"https://camelcamelcamel.com/search?sq={quote_plus(clean_product_query(p.title))}"
-    )
-    keepa_url = deal.keepa_url if (deal.keepa_url and is_safe_http_url(deal.keepa_url)) else None
+    if deal.is_domestic_kr:
+        kr_q = quote_plus(clean_kr_product_query(p.title))
+        camel_url = f"https://search.shopping.naver.com/search/all?query={kr_q}"
+        keepa_url = f"https://search.danawa.com/dsearch.php?query={kr_q}"
+        price_krw = p.price_krw
+    else:
+        camel_url = (
+            deal.camel_url
+            if (deal.camel_url and is_safe_http_url(deal.camel_url))
+            else f"https://camelcamelcamel.com/search?sq={quote_plus(clean_product_query(p.title))}"
+        )
+        keepa_url = deal.keepa_url if (deal.keepa_url and is_safe_http_url(deal.keepa_url)) else None
+        price_krw = deal.customs.price_krw if deal.customs else None
 
     return {
         "key": deal.canonical_key,
+        "region": p.region,
         "title": p.title,
         "korean_title": deal.llm.korean_title if deal.llm else "",
         "summary_ko": deal.llm.summary_ko if deal.llm else "",
@@ -34,7 +42,7 @@ def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
         "camel_url": camel_url,
         "keepa_url": keepa_url,
         "asin": p.asin,
-        "retailer": p.retailer or "Overseas",
+        "retailer": p.retailer or ("국내몰" if deal.is_domestic_kr else "Overseas"),
         "sources": deal.merged_sources,
         "score": deal.score,
         "category_label_ko": deal.category_label_ko,
@@ -42,9 +50,10 @@ def serialize_deal_for_dashboard(deal: ScoredDeal) -> dict[str, Any]:
         "original_price_usd": p.original_price_usd,
         "discount_pct": p.discount_pct,
         "savings_usd": p.savings_usd,
-        "price_krw": deal.customs.price_krw if deal.customs else None,
+        "price_krw": price_krw,
+        "shipping_label": p.shipping_label,
         "is_duty_free": deal.customs.is_duty_free if deal.customs else None,
-        "customs_label": deal.customs.label if deal.customs else "",
+        "customs_label": deal.customs.label if deal.customs else (f"🚚 {p.shipping_label}" if p.shipping_label else ""),
         "is_watch_match": deal.is_watch_match,
         "matched_watch_keywords": deal.matched_watch_keywords,
         "is_tech": deal.is_tech_category,

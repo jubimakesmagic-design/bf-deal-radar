@@ -12,6 +12,7 @@ from bf_deal_radar.dedup import cluster_deals
 from bf_deal_radar.exchange import fetch_usd_krw_rate
 from bf_deal_radar.llm import enrich_deals_with_llm
 from bf_deal_radar.models import AppConfig, ScoredDeal
+from bf_deal_radar.naver import enrich_kr_deals_with_naver
 from bf_deal_radar.notifier.console import ConsoleNotifier
 from bf_deal_radar.notifier.telegram import TelegramNotifier
 from bf_deal_radar.sources.rss import fetch_all_sources, fetch_all_sources_with_cache
@@ -100,8 +101,13 @@ def run_once(
                 report.excluded_count += 1
                 continue
 
+            base_min = (
+                min_score_override
+                if min_score_override is not None
+                else (config.kr_min_score if deal.is_domestic_kr else config.min_score)
+            )
             # VIP watch-keyword matches still get a modest threshold break (-6) without burying stronger deals
-            effective_min = max(55, min_score - 6) if deal.is_watch_match else min_score
+            effective_min = max(55, base_min - 6) if deal.is_watch_match else base_min
             if deal.score < effective_min:
                 if not dry_run:
                     storage.record_deal(deal, notified=False)
@@ -115,7 +121,7 @@ def run_once(
 
             candidates.append(deal)
 
-        # Rank purely by verified deal score first (watch keywords already contribute +18 to score)
+        # Rank purely by verified deal score first
         rank_key = lambda d: (
             d.score,
             1 if d.is_historical_low else 0,
@@ -124,6 +130,16 @@ def run_once(
         all_qualified.sort(key=rank_key, reverse=True)
         candidates.sort(key=rank_key, reverse=True)
         report.all_qualified_deals = all_qualified
+
+        # Optional: cross-check top Korean candidates against live Naver Shopping market prices
+        if candidates and not seed_only and config.naver.is_configured:
+            enrich_kr_deals_with_naver(candidates, config.naver)
+            candidates = [
+                d
+                for d in candidates
+                if not d.is_domestic_kr or d.score >= (min_score_override if min_score_override is not None else config.kr_min_score)
+            ]
+            candidates.sort(key=rank_key, reverse=True)
 
         # Avoid first-run notification flood while still showing top deals immediately
         effective_limit = min(max_alerts, 5) if (is_first_run and not dry_run and limit_override is None) else max_alerts

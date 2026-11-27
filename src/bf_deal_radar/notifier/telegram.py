@@ -10,7 +10,7 @@ from urllib.parse import quote_plus
 import httpx
 
 from bf_deal_radar.models import ScoredDeal
-from bf_deal_radar.parser import clean_product_query
+from bf_deal_radar.parser import clean_kr_product_query, clean_product_query
 from bf_deal_radar.security import is_safe_http_url, redact_secrets, register_secrets
 
 logger = logging.getLogger(__name__)
@@ -37,14 +37,15 @@ def _tier_label(deal: ScoredDeal) -> str:
 
 
 def format_telegram_html(deal: ScoredDeal) -> str:
-    """Format a ScoredDeal into a mobile-friendly Telegram HTML message."""
+    """Format a ScoredDeal (US overseas or KR domestic) into a mobile-friendly Telegram HTML message."""
     p = deal.primary
     badge = _score_badge(deal)
     tier = html.escape(_tier_label(deal))
+    region_tag = "🇰🇷 국내" if deal.is_domestic_kr else "🇺🇸 직구"
     cat_tag = html.escape(deal.category_label_ko or ("💻 IT/가전" if deal.is_tech_category else f"🛍️ {p.category_hint}"))
 
     lines: list[str] = [
-        f"{badge} <b>[{deal.score}점] {tier}</b> | {cat_tag}",
+        f"{badge} <b>[{region_tag} · {deal.score}점] {tier}</b> | {cat_tag}",
         "",
     ]
 
@@ -56,26 +57,34 @@ def format_telegram_html(deal: ScoredDeal) -> str:
 
     lines.append("")
 
-    # Price & Discount line (with KRW savings conversion!)
+    # Price & Discount line
     price_parts: list[str] = []
-    if p.price_usd is not None:
-        if deal.customs:
-            price_parts.append(f"💰 <b>${p.price_usd:,.2f}</b> (약 {deal.customs.price_krw:,}원)")
-        else:
-            price_parts.append(f"💰 <b>${p.price_usd:,.2f}</b>")
-    if p.original_price_usd is not None and (p.price_usd is None or p.original_price_usd > p.price_usd):
-        price_parts.append(f"<s>${p.original_price_usd:,.2f}</s>")
+    if deal.is_domestic_kr:
+        if p.price_krw is not None:
+            price_parts.append(f"💰 <b>{p.price_krw:,}원</b>")
+        if p.shipping_label:
+            price_parts.append(f"🚚 {html.escape(p.shipping_label)}")
+        if p.discount_pct is not None:
+            price_parts.append(f"🔥 <b>{p.discount_pct:.0f}% 할인</b>")
+    else:
+        if p.price_usd is not None:
+            if deal.customs:
+                price_parts.append(f"💰 <b>${p.price_usd:,.2f}</b> (약 {deal.customs.price_krw:,}원)")
+            else:
+                price_parts.append(f"💰 <b>${p.price_usd:,.2f}</b>")
+        if p.original_price_usd is not None and (p.price_usd is None or p.original_price_usd > p.price_usd):
+            price_parts.append(f"<s>${p.original_price_usd:,.2f}</s>")
 
-    savings_krw_note = ""
-    if p.savings_usd is not None and deal.customs and deal.customs.usd_krw_rate > 0:
-        sav_krw = int(round(p.savings_usd * deal.customs.usd_krw_rate / 1000.0) * 1000)
-        if sav_krw >= 5000:
-            savings_krw_note = f" (약 {sav_krw:,}원 절약)"
+        savings_krw_note = ""
+        if p.savings_usd is not None and deal.customs and deal.customs.usd_krw_rate > 0:
+            sav_krw = int(round(p.savings_usd * deal.customs.usd_krw_rate / 1000.0) * 1000)
+            if sav_krw >= 5000:
+                savings_krw_note = f" (약 {sav_krw:,}원 절약)"
 
-    if p.discount_pct is not None:
-        price_parts.append(f"🔥 <b>{p.discount_pct:.0f}% OFF</b>{savings_krw_note}")
-    elif p.savings_usd is not None:
-        price_parts.append(f"💵 <b>${p.savings_usd:,.0f} 할인</b>{savings_krw_note}")
+        if p.discount_pct is not None:
+            price_parts.append(f"🔥 <b>{p.discount_pct:.0f}% OFF</b>{savings_krw_note}")
+        elif p.savings_usd is not None:
+            price_parts.append(f"💵 <b>${p.savings_usd:,.0f} 할인</b>{savings_krw_note}")
 
     if price_parts:
         lines.append("  |  ".join(price_parts))
@@ -88,6 +97,18 @@ def format_telegram_html(deal: ScoredDeal) -> str:
         meta_parts.append(f"📡 {html.escape(', '.join(deal.merged_sources[:3]))}")
     if meta_parts:
         lines.append("  |  ".join(meta_parts))
+
+    # Community engagement summary for Korean deals
+    if deal.is_domestic_kr:
+        eng: list[str] = []
+        if p.thumb_score:
+            eng.append(f"👍 추천 {p.thumb_score}")
+        if p.comment_count:
+            eng.append(f"💬 댓글 {p.comment_count}")
+        if p.view_count:
+            eng.append(f"👀 조회 {p.view_count:,}")
+        if eng:
+            lines.append(" · ".join(eng))
 
     if deal.customs:
         lines.append(html.escape(deal.customs.label))
@@ -120,10 +141,15 @@ def build_telegram_payload(chat_id: str, deal: ScoredDeal) -> dict:
     """Build Telegram Bot API sendMessage JSON payload with validated inline buttons."""
     row1: list[dict[str, str]] = []
     if is_safe_http_url(deal.primary.url):
-        row1.append({"text": "🛒 딜 바로가기", "url": deal.primary.url})
+        btn_label = "🛒 핫딜 원글 보기" if deal.is_domestic_kr else "🛒 딜 바로가기"
+        row1.append({"text": btn_label, "url": deal.primary.url})
 
     row2: list[dict[str, str]] = []
-    if deal.camel_url and deal.keepa_url and is_safe_http_url(deal.camel_url) and is_safe_http_url(deal.keepa_url):
+    if deal.is_domestic_kr:
+        kr_q = quote_plus(clean_kr_product_query(deal.primary.title))
+        row2.append({"text": "🔍 네이버 최저가 비교", "url": f"https://search.shopping.naver.com/search/all?query={kr_q}"})
+        row2.append({"text": "📊 다나와 시세", "url": f"https://search.danawa.com/dsearch.php?query={kr_q}"})
+    elif deal.camel_url and deal.keepa_url and is_safe_http_url(deal.camel_url) and is_safe_http_url(deal.keepa_url):
         row2.append({"text": "📈 가격추이 (CCC)", "url": deal.camel_url})
         row2.append({"text": "📊 Keepa 차트", "url": deal.keepa_url})
     else:

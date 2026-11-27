@@ -93,6 +93,9 @@ def _prices_compatible(p1: float | None, p2: float | None) -> bool:
 
 
 def _is_same_deal(a: RawDeal, b: RawDeal, tokens_a: set[str], tokens_b: set[str]) -> bool:
+    if a.region != b.region:
+        return False
+
     if a.asin and b.asin and a.asin == b.asin:
         return True
 
@@ -110,21 +113,27 @@ def _is_same_deal(a: RawDeal, b: RawDeal, tokens_a: set[str], tokens_b: set[str]
     jaccard = len(overlap) / len(union)
     containment = len(overlap) / min(len(tokens_a), len(tokens_b))
 
-    if (jaccard >= 0.55 or (containment >= 0.8 and len(overlap) >= 4)) and _prices_compatible(
-        a.price_usd, b.price_usd
-    ):
+    price_ok = (
+        _prices_compatible(
+            float(a.price_krw) if a.price_krw is not None else None,
+            float(b.price_krw) if b.price_krw is not None else None,
+        )
+        if a.region == "KR"
+        else _prices_compatible(a.price_usd, b.price_usd)
+    )
+    if (jaccard >= 0.55 or (containment >= 0.8 and len(overlap) >= 4)) and price_ok:
         return True
     return False
 
 
 def _merge_cluster(cluster: list[RawDeal]) -> ScoredDeal:
     """Merge duplicate/cross-source deals into a single enriched ScoredDeal."""
-    # Pick best primary deal: prefer higher base score, ASIN availability, explicit price, newer timestamp
     def _rank(d: RawDeal) -> tuple[int, int, int, int, float]:
+        has_price = 1 if (d.price_krw is not None or d.price_usd is not None) else 0
         return (
             1 if d.asin else 0,
-            d.source_base_score + (10 if d.staff_pick else 0) + (10 if (d.thumb_score or 0) >= 30 else 0),
-            1 if d.price_usd is not None else 0,
+            d.source_base_score + (10 if d.staff_pick else 0) + min(20, d.thumb_score or 0),
+            has_price,
             1 if d.discount_pct is not None else 0,
             d.published_at.timestamp() if d.published_at else 0.0,
         )
@@ -132,7 +141,6 @@ def _merge_cluster(cluster: list[RawDeal]) -> ScoredDeal:
     ordered = sorted(cluster, key=_rank, reverse=True)
     primary = ordered[0]
 
-    # Enrich primary with missing fields from sibling sightings
     merged_sources: list[str] = []
     merged_urls: dict[str, str] = {}
     seen_source_names: set[str] = set()
@@ -149,6 +157,10 @@ def _merge_cluster(cluster: list[RawDeal]) -> ScoredDeal:
             primary.price_usd = item.price_usd
         if primary.original_price_usd is None and item.original_price_usd is not None:
             primary.original_price_usd = item.original_price_usd
+        if primary.price_krw is None and item.price_krw is not None:
+            primary.price_krw = item.price_krw
+        if primary.shipping_label is None and item.shipping_label:
+            primary.shipping_label = item.shipping_label
         if item.discount_pct is not None and (
             primary.discount_pct is None or item.discount_pct > primary.discount_pct
         ):
@@ -161,6 +173,16 @@ def _merge_cluster(cluster: list[RawDeal]) -> ScoredDeal:
             primary.thumb_score is None or item.thumb_score > primary.thumb_score
         ):
             primary.thumb_score = item.thumb_score
+        if item.comment_count is not None and (
+            primary.comment_count is None or item.comment_count > primary.comment_count
+        ):
+            primary.comment_count = item.comment_count
+        if item.view_count is not None and (
+            primary.view_count is None or item.view_count > primary.view_count
+        ):
+            primary.view_count = item.view_count
+        if item.is_sold_out:
+            primary.is_sold_out = True
         if item.staff_pick:
             primary.staff_pick = True
         if primary.coupon_code is None and item.coupon_code:

@@ -374,13 +374,16 @@ def extract_retailer(
 
 
 def normalize_title_tokens(title: str) -> set[str]:
-    """Extract meaningful normalized tokens from a deal title for cross-source clustering."""
+    """Extract meaningful normalized tokens (English + Hangul) for cross-source clustering."""
     cleaned = html.unescape(title).lower()
-    # Strip prices and percentages
+    # Strip USD/KRW prices, percentages, and bracketed retailer tags
+    cleaned = re.sub(r"\[[^\]]{1,20}\]", " ", cleaned)
     cleaned = re.sub(r"\$\d+(?:,\d{3})*(?:\.\d{1,2})?", " ", cleaned)
+    cleaned = re.sub(r"\d{1,3}(?:,\d{3})+\s*원?", " ", cleaned)
     cleaned = re.sub(r"\d+%", " ", cleaned)
-    tokens = re.findall(r"[a-z0-9]+", cleaned)
-    return {t for t in tokens if len(t) >= 2 and t not in _TITLE_STOPWORDS}
+    tokens = re.findall(r"[a-z0-9가-힣]+", cleaned)
+    kr_stop = {"무료", "무배", "무료배송", "와우", "할인", "특가", "최저가", "역대가", "쿠폰", "배송비", "별도", "네멤무료", "와우무료"}
+    return {t for t in tokens if len(t) >= 2 and t not in _TITLE_STOPWORDS and t not in kr_stop}
 
 
 _CLEAN_QUERY_PREFIX_RE = re.compile(
@@ -405,3 +408,155 @@ def clean_product_query(title: str) -> str:
     q = re.sub(r"\$\d+(?:,\d{3})*(?:\.\d{1,2})?", "", q)
     q = _WHITESPACE_RE.sub(" ", q).strip(" -:,|!")
     return (q or title)[:68]
+
+
+# --- Korean domestic hot deal parsers ---
+
+_KR_RETAILERS: list[tuple[str, str]] = [
+    ("쿠팡와우", "쿠팡와우"),
+    ("쿠팡", "쿠팡"),
+    ("네이버페이", "네이버페이"),
+    ("네이버", "네이버"),
+    ("스마트스토어", "네이버"),
+    ("지마켓", "G마켓"),
+    ("g마켓", "G마켓"),
+    ("gmarket", "G마켓"),
+    ("옥션", "옥션"),
+    ("11번가", "11번가"),
+    ("롯데온", "롯데온"),
+    ("lotteon", "롯데온"),
+    ("ssg", "SSG"),
+    ("쓱닷컴", "SSG"),
+    ("하이마트", "하이마트"),
+    ("카카오톡딜", "카카오톡딜"),
+    ("카카오메이커스", "카카오메이커스"),
+    ("카카오", "카카오"),
+    ("톡딜", "카카오톡딜"),
+    ("cj온스타일", "CJ온스타일"),
+    ("지에스샵", "GS샵"),
+    ("gs샵", "GS샵"),
+    ("gsshop", "GS샵"),
+    ("오늘의집", "오늘의집"),
+    ("무신사", "무신사"),
+    ("올리브영", "올리브영"),
+    ("홈플러스", "홈플러스"),
+    ("이마트", "이마트"),
+    ("알리익스프레스", "알리익스프레스"),
+    ("알리", "알리익스프레스"),
+    ("스팀", "스팀"),
+    ("플레이스토어", "플레이스토어"),
+    ("컴퓨존", "컴퓨존"),
+    ("다나와", "다나와"),
+    ("티몬", "티몬"),
+    ("위메프", "위메프"),
+    ("컬리", "마켓컬리"),
+    ("배민", "배달의민족"),
+]
+
+_KR_WON_RE = re.compile(r"(?<!\d)(\d{1,3}(?:,\d{3})+|\d{4,7})\s*원")
+_KR_MAN_WON_RE = re.compile(r"(?<!\d)(\d{1,3}(?:\.\d{1,2})?)\s*만\s*(?:(\d{1,4})\s*천?)?\s*원?")
+_KR_SLASH_PRICE_RE = re.compile(r"(\d{1,3}(?:,\d{3})+)\s*/\s*(?:무료|무배|와우|네멤|배송|유배|\d)")
+_KR_NON_ITEM_PREFIX_RE = re.compile(
+    r"(?:배송비|택배비|적립|포인트|캐시백|쿠폰|추가\s*할인|체감|최대|할인)\s*$"
+)
+_KR_SOLD_OUT_RE = re.compile(
+    r"(?:\[\s*(?:종료|품절|마감|끌올종료)\s*\]|\(\s*(?:종료|품절|마감)\s*\)|(?:품절|종료|마감)됨\b|^품절\b)",
+    re.IGNORECASE,
+)
+_KR_PCT_RE = re.compile(r"(\d{1,2})\s*%\s*(?:할인|세일|off|특가|적립)?", re.IGNORECASE)
+
+
+def extract_krw_price(title: str, description: str = "") -> int | None:
+    """Extract Korean Won price (e.g., 18,930원, 43,610원/무배, 12.9만원) from deal title."""
+    for text in (title, description[:200]):
+        if not text:
+            continue
+        # 1. Explicit "NN,NNN원"
+        for m in _KR_WON_RE.finditer(text):
+            before = text[max(0, m.start() - 14) : m.start()]
+            if _KR_NON_ITEM_PREFIX_RE.search(before):
+                continue
+            val = int(m.group(1).replace(",", ""))
+            if 500 <= val <= 50_000_000:
+                return val
+
+        # 2. "NN,NNN/무배" format without explicit 원
+        m_slash = _KR_SLASH_PRICE_RE.search(text)
+        if m_slash:
+            val = int(m_slash.group(1).replace(",", ""))
+            if 500 <= val <= 50_000_000:
+                return val
+
+        # 3. "12.9만원" or "3만5천원"
+        m_man = _KR_MAN_WON_RE.search(text)
+        if m_man:
+            before = text[max(0, m_man.start() - 14) : m_man.start()]
+            if not _KR_NON_ITEM_PREFIX_RE.search(before):
+                base = float(m_man.group(1)) * 10_000
+                extra = int(m_man.group(2)) * 1_000 if m_man.group(2) else 0
+                val = int(round(base + extra))
+                if 1000 <= val <= 50_000_000:
+                    return val
+    return None
+
+
+def extract_kr_discount_pct(title: str, description: str = "") -> float | None:
+    """Extract explicit percentage discount from Korean deal title/description (ignoring <10%)."""
+    text = f"{title} {description[:200]}"
+    # Ignore "최대 NN%" marketing banners
+    text = re.sub(r"최대\s*\d{1,2}\s*%", " ", text)
+    matches = [int(m.group(1)) for m in _KR_PCT_RE.finditer(text)]
+    valid = [p for p in matches if 10 <= p <= 95]
+    if valid:
+        return float(max(valid))
+    if "반값" in text:
+        return 50.0
+    return None
+
+
+def extract_kr_retailer(title: str) -> str | None:
+    """Extract Korean shopping mall name from bracket prefix '[쿠팡]' or title."""
+    bracket = re.search(r"^\s*[\[\(]([^\]\)]{1,18})[\]\)]", title)
+    if bracket:
+        inside = bracket.group(1).strip()
+        inside_low = inside.lower()
+        for needle, label in _KR_RETAILERS:
+            if needle in inside_low:
+                return label
+        if len(inside) <= 12:
+            return inside
+
+    low = title.lower()
+    for needle, label in _KR_RETAILERS:
+        if needle in low:
+            return label
+    return None
+
+
+def extract_kr_shipping(title: str) -> str | None:
+    """Detect free shipping vs paid shipping from Korean hot deal title."""
+    if re.search(r"(?:무료배송|무배|와우무료|네멤무료|로켓배송|/\s*무료\b)", title):
+        return "무료배송"
+    if re.search(r"(?:배송비\s*별도|유배|배송비\s*\d)", title):
+        return "배송비 별도"
+    return None
+
+
+def is_kr_sold_out(title: str) -> bool:
+    """Return True if a Korean deal title explicitly indicates sold-out/expired."""
+    return bool(_KR_SOLD_OUT_RE.search(title))
+
+
+def clean_kr_product_query(title: str) -> str:
+    """Strip mall tags, prices, and shipping suffixes from Korean title for Naver/Danawa search."""
+    q = html.unescape(title).strip()
+    # Remove leading [몰명] or (몰명)
+    q = re.sub(r"^\s*(?:[\[\(][^\]\)]{1,20}[\]\)]\s*)+", "", q)
+    # Remove parenthesized price/shipping suffixes like (18,930원/무료)
+    q = re.sub(r"\([^)]*(?:\d{1,3}(?:,\d{3})+원|무료|무배|배송)[^)]*\)", " ", q)
+    # Remove inline prices & shipping labels
+    q = re.sub(r"\d{1,3}(?:,\d{3})+\s*원?(?:\s*/\s*\S+)?", " ", q)
+    q = re.sub(r"\d{1,2}%\s*(?:할인|세일|특가)?", " ", q)
+    q = re.sub(r"(?:무료배송|무배|와우무료|네멤무료|배송비\s*별도|역대가|최저가|초특가|할인|특가)", " ", q)
+    q = _WHITESPACE_RE.sub(" ", q).strip(" -:,|/()")
+    return (q or title)[:55]

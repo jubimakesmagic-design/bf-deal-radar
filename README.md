@@ -1,25 +1,23 @@
-# 🛰️ BF Deal Radar — 해외직구 블랙프라이데이 찐할인 알리미
+# 🛰️ BF Deal Radar — 해외직구 & 국내 핫딜 찐할인 알리미
 
-해외(미국 중심) 핫딜 커뮤니티와 에디터 피드를 실시간 수집하고, **가짜 할인·미국 내수 전용 노이즈를 걸러낸 뒤 진짜 할인 폭이 큰 딜만 텔레그램으로 알려주는** 경량 레이더입니다.
+해외직구(미국 중심)와 **국내 핫딜(쿠팡·네이버·G마켓·11번가·롯데온·SSG 등 전 품목)**을 실시간 동시 수집하고, **가짜 할인·포인트 적립 스팸·품절 딜을 거른 뒤 진짜 저렴한 딜만 텔레그램으로 알려주는** 경량 레이더입니다.
 
 ## ✨ 주요 기능
 
-* **빠른 해외직구 핫딜 수집 (11개 공식 RSS/Atom 동시 수집)**
-  * **Slickdeals Frontpage / Popular / IT·PC Hot** (커뮤니티 `Thumb Score` 추천수·쿠폰 코드 자동 추출)
-  * **DealNews (Electronics / Computers / Home & Garden / All)** (스토어 배너 제외, 개별 상품 정가·`Staff Pick`·역대가 코멘트 추출)
+* **🇺🇸 해외직구 11개 공식 피드 동시 수집**
+  * **Slickdeals Frontpage / Popular / IT·PC Hot** (커뮤니티 `Thumb Score` 추천수·쿠폰 코드 추출)
+  * **DealNews (Electronics / Computers / Home & Garden / All)** (스토어 배너 제외, 정가·`Staff Pick`·역대가 추출)
   * **9to5Toys / The Verge Deals / CNET Deals / IGN Deals** (IT·Apple·가전·게이밍 블프 역대가 속보)
-  * *(로컬 실행 시 `config.yaml`에서 `Reddit r/buildapcsales`, `TechBargains` 추가 활성화 가능)*
-* **다중 시그널 "찐할인" 검증 엔진 (0~100점)**
-  * **할인율 정량 계산**: 실제 `% OFF`, `$X off`, `was $X` 파싱 (`Up to X% off` 마케팅 문구 제외)
-  * **역대가(All-Time Low) 감지**: 역대 최저가·최초 하락 언급 및 자체 가격 이력 DB 대비 10% 이상 추가 하락 포착
-  * **커뮤니티 & 교차 사이트 검증**: Slickdeals 추천수, DealNews Staff Pick, **2개 이상 해외 사이트 동시 등장 시 중복 병합 + 점수 대폭 가산**
-  * **해외직구 노이즈 자동 차단**: 미국 통신사(Verizon/AT&T), 배달앱(DoorDash), 오프라인 전용(`In-Store Only`), 스트리밍 번들 등 직구 불가 딜 자동 제외
-* **한국인 해외직구 맞춤 정보**
-  * 실시간 `USD → KRW` 환율 자동 환산 + **미국 목록통관 \$200 면세/관부가세 초과 여부** 자동 계산
-  * **미국 110~120V 전압 주의 자동 표시** (에스프레소 머신·히터·청소기·TV 등 고전력 가전)
-  * 텔레그램 인라인 버튼으로 **CamelCamelCamel / Keepa 가격 변동 차트** 1클릭 이동
-  * **실시간 정적 웹 대시보드** (`bf-radar dashboard` + GitHub Pages 워크플로우 포함, 직구 관부가세 계산기 내장)
-* *(선택)* **LLM 한국어 요약 & AI 검증**: `GEMINI_API_KEY` (무료 티어) 또는 `OPENAI_API_KEY`를 넣으면 한국어 제목·1줄 요약·직구 주의사항까지 자동 추가 (미설정 시에도 100% 무료 규칙 엔진으로 정상 동작)
+* **🇰🇷 국내 핫딜 3대 커뮤니티 동시 수집 (전 품목)**
+  * **루리웹 핫딜 / 클리앙 알뜰구매 / 딜바다 국내핫딜** (쿠팡·네이버·G마켓·11번가·롯데온·하이마트 등)
+  * **추천수·댓글수·조회수·비추천 비율·교차 커뮤니티 등장** 기반 찐딜 검증 + **품절/네이버페이 포인트 5원 스팸 자동 차단**
+  * 모든 국내 알림에 **[🔍 네이버 최저가 비교]** & **[📊 다나와 시세]** 1클릭 버튼 자동 첨부
+  * *(선택)* 무료 **네이버 쇼핑 검색 API**(`NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`) 등록 시 실시간 온라인 평균 시세 대비 실제 저렴한지 자동 대조!
+* **한국인 맞춤 정보 & 보안**
+  * 해외직구: 실시간 `USD → KRW` 환율 + **미국 목록통관 \$200 면세/관부가세 계산** + **110~120V 전압 주의** + **대형 배대지 배송비 경고** + **CCC/Keepa 차트 버튼**
+  * 정적 웹 대시보드(`bf-radar dashboard`) & GitHub Pages 배포 워크플로우 포함
+  * `ETag` / `If-Modified-Since` 조건부 HTTP 캐싱으로 5분 폴링 속도·안정성 최적화
+  * *(선택)* `GEMINI_API_KEY` / `OPENAI_API_KEY` 추가 시 LLM 한국어 요약 & AI 검증 활성화
 
 ---
 
@@ -35,12 +33,13 @@ Public 리포지토리는 GitHub Actions가 무료이므로 **별도 서버 없�
    * 또는 로컬에서 `TELEGRAM_BOT_TOKEN=<토큰> bf-radar discover-chat-id` 실행해 자동 조회!
 
 ### 2단계: GitHub Secrets 등록
-이 리포지토리의 **Settings → Secrets and variables → Actions → New repository secret** 에서 아래 2개를 추가합니다.
+이 리포지토리의 **Settings → Secrets and variables → Actions → New repository secret** 에서 아래 값을 추가합니다.
 
 | Secret 이름 | 설명 | 필수 여부 |
 | :--- | :--- | :---: |
 | `TELEGRAM_BOT_TOKEN` | BotFather에서 발급받은 봇 토큰 | **필수** |
 | `TELEGRAM_CHAT_ID` | 알림을 받을 본인 Chat ID (또는 채널/그룹 ID) | **필수** |
+| `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 국내 핫딜 실시간 네이버 시세 대조용 (무료 25,000회/일) | 선택 |
 | `GEMINI_API_KEY` | Gemini 한국어 요약/검증용 키 ([Google AI Studio](https://aistudio.google.com/apikey)) | 선택 |
 | `OPENAI_API_KEY` | OpenAI 호환 API 사용 시 | 선택 |
 

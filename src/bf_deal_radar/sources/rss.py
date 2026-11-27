@@ -21,8 +21,10 @@ from bf_deal_radar.parser import (
     strip_html,
 )
 from bf_deal_radar.security import is_safe_http_url
+from bf_deal_radar.sources.korean import parse_korean_board_html
 
 logger = logging.getLogger(__name__)
+_KOREAN_HTML_TYPES = {"ruliweb", "clien", "dealbada"}
 
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
 _SD_THUMB_RE = re.compile(r"Thumb\s+Score:\s*([+-]?\d+)", re.IGNORECASE)
@@ -256,12 +258,18 @@ async def _fetch_single_source(
 
     headers = {
         "User-Agent": (
-            "linux:bf-deal-radar:0.3"
+            "linux:bf-deal-radar:0.4"
             if source.type == "reddit"
-            else "BFDealRadar/0.3 (+https://github.com/jubimakesmagic-design/bf-deal-radar)"
+            else "BFDealRadar/0.4 (+https://github.com/jubimakesmagic-design/bf-deal-radar)"
         ),
-        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            if source.type in _KOREAN_HTML_TYPES
+            else "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8"
+        ),
     }
+    if source.region == "KR" or source.type in _KOREAN_HTML_TYPES:
+        headers["Accept-Language"] = "ko-KR,ko;q=0.9,en;q=0.5"
     if cache_entry:
         etag, last_mod = cache_entry
         if etag:
@@ -278,7 +286,11 @@ async def _fetch_single_source(
         if len(resp.content) > MAX_FEED_BYTES:
             logger.warning("Skipping oversized feed from %s (%d bytes)", source.name, len(resp.content))
             return [], None
-        deals = parse_feed_xml(resp.content, source)
+        deals = (
+            parse_korean_board_html(resp.content, source)
+            if source.type in _KOREAN_HTML_TYPES
+            else parse_feed_xml(resp.content, source)
+        )
         new_etag = resp.headers.get("etag")
         new_lm = resp.headers.get("last-modified")
         cache_update = (source.id, new_etag, new_lm) if (new_etag or new_lm) else None

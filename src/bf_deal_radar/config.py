@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from bf_deal_radar.models import AppConfig, FilterConfig, LLMConfig, SourceConfig
+from bf_deal_radar.models import AppConfig, FilterConfig, LLMConfig, NaverConfig, SourceConfig
 from bf_deal_radar.security import register_secrets
 
 
@@ -34,6 +34,12 @@ def _parse_optional_float(val: Any) -> float | None:
     return float(val)
 
 
+def _parse_optional_int(val: Any) -> int | None:
+    if val is None or val == "":
+        return None
+    return int(val)
+
+
 def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = ".env") -> AppConfig:
     """Load configuration from YAML file and environment variables."""
     load_dotenv(env_path)
@@ -46,6 +52,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
     radar = data.get("radar", {}) or {}
     filters_raw = data.get("filters", {}) or {}
     llm_raw = data.get("llm", {}) or {}
+    naver_raw = data.get("naver", {}) or {}
     sources_raw = data.get("sources", []) or []
 
     sources = [
@@ -57,6 +64,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
             enabled=bool(item.get("enabled", True)),
             base_score=int(item.get("base_score", 12)),
             category_hint=str(item.get("category_hint", "핫딜")),
+            region=str(item.get("region", "US")).upper(),
         )
         for item in sources_raw
     ]
@@ -65,6 +73,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
         watch_keywords=[str(k).lower() for k in filters_raw.get("watch_keywords", [])],
         boost_keywords=[str(k).lower() for k in filters_raw.get("boost_keywords", [])],
         exclude_keywords=[str(k).lower() for k in filters_raw.get("exclude_keywords", [])],
+        kr_exclude_keywords=[str(k).lower() for k in filters_raw.get("kr_exclude_keywords", [])],
         condition_penalty_keywords=[
             str(k).lower() for k in filters_raw.get("condition_penalty_keywords", [])
         ],
@@ -81,18 +90,28 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
         openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
     )
 
+    naver = NaverConfig(
+        enabled=bool(naver_raw.get("enabled", True)),
+        max_calls_per_run=int(naver_raw.get("max_calls_per_run", 10)),
+        timeout_seconds=int(naver_raw.get("timeout_seconds", 8)),
+        client_id=os.getenv("NAVER_CLIENT_ID", "").strip(),
+        client_secret=os.getenv("NAVER_CLIENT_SECRET", "").strip(),
+    )
+
     min_score_env = os.getenv("RADAR_MIN_SCORE", "").strip()
     max_alerts_env = os.getenv("RADAR_MAX_ALERTS", "").strip()
     rate_env = os.getenv("USD_KRW_RATE", "").strip()
 
     cfg = AppConfig(
-        min_score=int(min_score_env) if min_score_env else int(radar.get("min_score", 60)),
+        min_score=int(min_score_env) if min_score_env else int(radar.get("min_score", 66)),
+        kr_min_score=int(min_score_env) if min_score_env else int(radar.get("kr_min_score", 62)),
         max_alerts_per_run=(
             int(max_alerts_env) if max_alerts_env else int(radar.get("max_alerts_per_run", 8))
         ),
         max_age_hours=int(radar.get("max_age_hours", 18)),
         min_price_usd=_parse_optional_float(radar.get("min_price_usd", 5.0)),
         max_price_usd=_parse_optional_float(radar.get("max_price_usd")),
+        min_price_krw=_parse_optional_int(radar.get("min_price_krw", 3000)),
         us_customs_threshold_usd=float(radar.get("us_customs_threshold_usd", 200.0)),
         fallback_usd_krw=float(radar.get("fallback_usd_krw", 1400.0)),
         override_usd_krw=_parse_optional_float(rate_env),
@@ -102,11 +121,14 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path = 
         sources=sources,
         filters=filters,
         llm=llm,
+        naver=naver,
     )
     register_secrets(
         cfg.telegram_bot_token,
         cfg.telegram_chat_id,
         cfg.llm.gemini_api_key,
         cfg.llm.openai_api_key,
+        cfg.naver.client_id,
+        cfg.naver.client_secret,
     )
     return cfg

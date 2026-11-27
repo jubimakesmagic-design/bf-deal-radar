@@ -71,27 +71,74 @@ _PLATFORM_MAP = {
     "cnet": "CNET",
     "ign": "IGN",
     "reddit": "Reddit",
+    "루리웹": "루리웹",
+    "클리앙": "클리앙",
+    "딜바다": "딜바다",
+}
+
+_KR_TRUSTED_MALLS = {
+    "쿠팡",
+    "쿠팡와우",
+    "네이버",
+    "G마켓",
+    "옥션",
+    "11번가",
+    "롯데온",
+    "SSG",
+    "하이마트",
+    "카카오톡딜",
+    "올리브영",
+    "무신사",
+    "홈플러스",
+    "이마트",
+    "GS샵",
+    "CJ온스타일",
+    "오늘의집",
+    "컴퓨존",
+}
+
+_KR_HOT_VALUE_RE = re.compile(
+    r"(?:역대가|역대\s*최저|초특가|반값|대란|혜자|최저가|꿀딜|특가|50%\s*할인)",
+    re.IGNORECASE,
+)
+
+_KR_CATEGORY_MAP = {
+    "음식": "🍔 식품/간식",
+    "식품/건강": "🍔 식품/간식",
+    "PC/가전": "💻 IT/가전",
+    "디지털": "💻 IT/가전",
+    "게임S/W": "🎮 게임/SW",
+    "생활용품": "🏠 생활/가전",
+    "의류": "👕 패션/뷰티",
+    "패션/뷰티": "👕 패션/뷰티",
+    "상품권": "🎟️ 상품권/쿠폰",
+    "상품정보": "🛍️ 국내핫딜",
+    "이벤트정보": "🎁 이벤트/혜택",
 }
 
 _CATEGORY_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:ssd|nvme|ryzen|processor|graphics\s+card|motherboard|ddr5|cpu|nas|synology)\b", re.I), "💾 SSD/PC부품"),
-    (re.compile(r"\b(?:macbook|laptop|chromebook|thinkpad|legion|gaming\s+pc|mini\s+pc|desktop\s+pc)\b", re.I), "💻 노트북/PC"),
-    (re.compile(r"\b(?:headphone|earbud|airpods|soundbar|speaker|bose|sonos|sennheiser|beats|wh-1000xm)\b", re.I), "🎧 음향/오디오"),
-    (re.compile(r"\b(?:smartwatch|garmin|apple\s+watch|smart\s+ring|ringconn|forerunner|fenix|fēnix|instinct)\b", re.I), "⌚ 스마트워치/웨어러블"),
-    (re.compile(r"\b(?:ipad|tablet|iphone|pixel|galaxy|kindle|e-reader)\b", re.I), "📱 태블릿/모바일"),
-    (re.compile(r"\b(?:oled|qled|monitor|4k\s+tv|smart\s+tv|led\s+tv|projector|fire\s+tv)\b", re.I), "🖥️ 모니터/TV"),
-    (re.compile(r"\b(?:ps5|playstation|nintendo|switch\s*2?|xbox|steam\s+deck|controller)\b", re.I), "🎮 게이밍"),
-    (re.compile(r"\b(?:camera|gopro|dji|insta360|lens|drone)\b", re.I), "📷 카메라/드론"),
-    (re.compile(r"\b(?:charger|power\s+bank|gan|usb-c|hub|router|wi-fi|wifi|keyboard|mouse|airtag)\b", re.I), "🔌 주변기기/충전"),
-    (re.compile(r"\b(?:smart\s+plug|thermostat|security\s+cam|solocam|vacuum|roborock|dyson|espresso|coffee|heater|purifier)\b", re.I), "🏠 스마트홈/가전"),
+    (re.compile(r"\b(?:macbook|laptop|chromebook|thinkpad|legion|gaming\s+pc|mini\s+pc|desktop\s+pc)\b|노트북|맥북", re.I), "💻 노트북/PC"),
+    (re.compile(r"\b(?:headphone|earbud|airpods|soundbar|speaker|bose|sonos|sennheiser|beats|wh-1000xm)\b|이어폰|헤드폰|에어팟|스피커", re.I), "🎧 음향/오디오"),
+    (re.compile(r"\b(?:smartwatch|garmin|apple\s+watch|smart\s+ring|ringconn|forerunner|fenix|fēnix|instinct)\b|애플워치|갤럭시워치", re.I), "⌚ 스마트워치/웨어러블"),
+    (re.compile(r"\b(?:ipad|tablet|iphone|pixel|galaxy|kindle|e-reader)\b|아이패드|아이폰|갤럭시|태블릿", re.I), "📱 태블릿/모바일"),
+    (re.compile(r"\b(?:oled|qled|monitor|4k\s+tv|smart\s+tv|led\s+tv|projector|fire\s+tv)\b|모니터|티비", re.I), "🖥️ 모니터/TV"),
+    (re.compile(r"\b(?:ps5|playstation|nintendo|switch\s*2?|xbox|steam\s+deck|controller)\b|스팀|닌텐도|플스", re.I), "🎮 게이밍"),
+    (re.compile(r"\b(?:camera|gopro|dji|insta360|lens|drone)\b|카메라|드론", re.I), "📷 카메라/드론"),
+    (re.compile(r"\b(?:charger|power\s+bank|gan|usb-c|hub|router|wi-fi|wifi|keyboard|mouse|airtag)\b|파워뱅크|보조배터리|충전기|키보드|마우스", re.I), "🔌 주변기기/충전"),
+    (re.compile(r"\b(?:smart\s+plug|thermostat|security\s+cam|solocam|vacuum|roborock|dyson|espresso|coffee|heater|purifier)\b|청소기|공기청정기|커피|에스프레소", re.I), "🏠 스마트홈/가전"),
 ]
 
 
 def classify_korean_category(title: str, category_hint: str) -> str:
-    """Assign a clean Korean category tag based on product title."""
+    """Assign a clean Korean category tag based on product title or community category."""
+    if category_hint in _KR_CATEGORY_MAP and category_hint in ("음식", "식품/건강", "상품권", "의류", "패션/뷰티"):
+        return _KR_CATEGORY_MAP[category_hint]
     for pattern, label in _CATEGORY_RULES:
         if pattern.search(title):
             return label
+    if category_hint in _KR_CATEGORY_MAP:
+        return _KR_CATEGORY_MAP[category_hint]
     if category_hint in ("IT/가전", "IT/PC"):
         return "💻 IT/가전"
     return f"🛍️ {category_hint}"
@@ -117,8 +164,8 @@ def _contains_keyword(haystack: str, keyword: str) -> bool:
     kw = keyword.strip().lower()
     if not kw:
         return False
-    # Use word boundaries for short alphanumeric terms to avoid false matches (e.g., "ram" in "program")
-    if len(kw) <= 4 and kw.isalnum():
+    # Use word boundaries for short ASCII alphanumeric terms to avoid false matches ("ram" in "program")
+    if len(kw) <= 4 and kw.isascii() and kw.isalnum():
         return bool(re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", haystack))
     return kw in haystack
 
@@ -138,6 +185,138 @@ def _is_accessory_mention(title_lower: str, keyword: str, price_usd: float | Non
     return False
 
 
+def _verify_and_score_kr(
+    deal: ScoredDeal,
+    config: AppConfig,
+    now: datetime,
+) -> ScoredDeal:
+    """Evaluate a Korean domestic hot deal across ALL product categories using community + discount proof."""
+    primary = deal.primary
+    title_lower = primary.title.lower()
+    full_text = f"{primary.title}\n{primary.description}\n{primary.category or ''}".lower()
+
+    # 1. Immediately drop sold-out / expired deals
+    if primary.is_sold_out:
+        deal.excluded_reason = "품절/종료된 딜"
+        return deal
+
+    # 2. Age check
+    if primary.published_at is not None and config.max_age_hours > 0:
+        cutoff = now - timedelta(hours=config.max_age_hours)
+        if primary.published_at < cutoff:
+            deal.excluded_reason = f"오래된 딜 ({config.max_age_hours}시간 초과)"
+            return deal
+
+    # 3. Korean spam / click-point / non-deal exclusion
+    for kw in config.filters.kr_exclude_keywords:
+        if _contains_keyword(full_text, kw):
+            deal.excluded_reason = f"국내 제외 키워드 매칭: {kw}"
+            return deal
+
+    # 4. Minimum KRW price check (drops 5원/10원/500원 point-click promos)
+    if primary.price_krw is not None and config.min_price_krw is not None:
+        if primary.price_krw < config.min_price_krw:
+            deal.excluded_reason = f"최소 가격 미달 ({primary.price_krw:,}원)"
+            return deal
+
+    score = primary.source_base_score
+    reasons: list[str] = []
+
+    # 5. Community upvote / like proof (strongest Korean real-deal signal!)
+    upvotes = primary.thumb_score or 0
+    downvotes = primary.downvote_count or 0
+    if upvotes >= 30:
+        score += 32
+        reasons.append(f"🔥 커뮤니티 추천 폭주 (+{upvotes})")
+    elif upvotes >= 12:
+        score += 24
+        reasons.append(f"🔥 커뮤니티 고추천 (+{upvotes})")
+    elif upvotes >= 5:
+        score += 18
+        reasons.append(f"👍 커뮤니티 추천 (+{upvotes})")
+    elif upvotes >= 2:
+        score += 12
+        reasons.append(f"👍 추천 (+{upvotes})")
+
+    if downvotes >= 3 and downvotes >= upvotes:
+        score -= 28
+        reasons.append(f"⚠️ 비추천 다수 (추천 {upvotes} / 비추 {downvotes})")
+
+    # 6. Comment velocity & view proof
+    comments = primary.comment_count or 0
+    if comments >= 20:
+        score += 22
+        reasons.append(f"💬 댓글 폭발 ({comments}개)")
+    elif comments >= 8:
+        score += 15
+        reasons.append(f"💬 뜨거운 반응 (댓글 {comments}개)")
+    elif comments >= 4:
+        score += 9
+        reasons.append(f"💬 댓글 반응 ({comments}개)")
+
+    views = primary.view_count or 0
+    if views >= 5000:
+        score += 10
+        reasons.append(f"👀 높은 관심 (조회 {views:,})")
+    elif views >= 2000:
+        score += 6
+
+    # 7. Cross-community confirmation (spotted on 2+ Korean sites!)
+    platforms = _distinct_platforms(deal.merged_sources)
+    if len(platforms) >= 2:
+        score += 25
+        reasons.append(f"🔁 국내 {len(platforms)}개 커뮤니티 교차 검증 ({', '.join(platforms)})")
+
+    # 8. Quantitative discount & bargain keywords
+    if primary.discount_pct is not None:
+        pct = primary.discount_pct
+        if pct >= 50:
+            score += 28
+            reasons.append(f"🔥 {pct:.0f}% 초특가 할인")
+        elif pct >= 35:
+            score += 22
+            reasons.append(f"💥 {pct:.0f}% 대폭 할인")
+        elif pct >= 25:
+            score += 16
+            reasons.append(f"📉 {pct:.0f}% 할인")
+        elif pct >= 15:
+            score += 10
+            reasons.append(f"💸 {pct:.0f}% 할인")
+
+    if _KR_HOT_VALUE_RE.search(full_text):
+        deal.is_historical_low = "역대" in full_text or "최저" in full_text
+        score += 16
+        reasons.append("🏆 역대가/초특가 키워드")
+
+    # 9. Trusted domestic mall & free shipping bonus
+    if primary.retailer in _KR_TRUSTED_MALLS:
+        score += 8
+    if primary.shipping_label == "무료배송":
+        score += 4
+
+    # 10. Optional watch keyword bonus (works for Korean/English keywords too)
+    matched_watch = [
+        kw for kw in config.filters.watch_keywords if _contains_keyword(title_lower, kw)
+    ]
+    if matched_watch:
+        deal.is_watch_match = True
+        deal.matched_watch_keywords = matched_watch[:3]
+        score += 14
+        reasons.append(f"🚨 관심 키워드 ({', '.join(deal.matched_watch_keywords)})")
+
+    # Down-rank vague promo notices with no concrete price and low community proof
+    if primary.price_krw is None and primary.discount_pct is None and upvotes < 5 and comments < 10:
+        score -= 18
+
+    deal.category_label_ko = classify_korean_category(primary.title, primary.category_hint)
+    deal.is_tech_category = any(
+        tag in deal.category_label_ko for tag in ("노트북", "PC", "음향", "워치", "태블릿", "모니터", "카메라", "주변기기")
+    )
+    deal.score = max(0, min(100, int(round(score))))
+    deal.reasons = reasons
+    return deal
+
+
 def verify_and_score(
     deal: ScoredDeal,
     config: AppConfig,
@@ -145,8 +324,10 @@ def verify_and_score(
     now: datetime | None = None,
     previous_low_usd: float | None = None,
 ) -> ScoredDeal:
-    """Evaluate whether a deal is a genuine big discount and compute an explainable 0-100 score."""
+    """Evaluate whether a deal (US overseas or KR domestic) is a genuine big discount."""
     now = now or datetime.now(timezone.utc)
+    if deal.is_domestic_kr:
+        return _verify_and_score_kr(deal, config=config, now=now)
     primary = deal.primary
     title_lower = primary.title.lower()
     title_and_cat = f"{primary.title} {primary.category or ''}".lower()

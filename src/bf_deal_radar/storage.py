@@ -63,6 +63,13 @@ class DealStorage:
                 );
                 """
             )
+            # Safe migration for existing cached SQLite DBs created before v0.4
+            cols = {
+                row["name"]
+                for row in self._conn.execute("PRAGMA table_info(seen_deals)").fetchall()
+            }
+            if "price_krw" not in cols:
+                self._conn.execute("ALTER TABLE seen_deals ADD COLUMN price_krw INTEGER")
 
     def close(self) -> None:
         self._conn.close()
@@ -121,9 +128,17 @@ class DealStorage:
         if seen is None:
             return True
         if not seen["notified"]:
-            # Previously recorded below threshold, now crossed threshold (e.g., cross-source or upvotes grew)
+            # Previously recorded below threshold, now crossed threshold (e.g., upvotes/comments surged)
             return True
         # Already notified: only re-notify if price dropped >= 10% below previously notified price
+        if deal.is_domestic_kr:
+            prev_krw = seen.get("price_krw")
+            curr_krw = deal.primary.price_krw
+            if prev_krw is not None and curr_krw is not None and prev_krw > 0:
+                if curr_krw <= prev_krw * price_drop_renotify_ratio:
+                    return True
+            return False
+
         prev_price = seen["price_usd"]
         curr_price = deal.primary.price_usd
         if prev_price is not None and curr_price is not None and prev_price > 0:
@@ -142,9 +157,9 @@ class DealStorage:
                 self._conn.execute(
                     """
                     INSERT INTO seen_deals (
-                        canonical_key, asin, title, url, price_usd, score,
+                        canonical_key, asin, title, url, price_usd, price_krw, score,
                         notified, first_seen_at, last_seen_at, notified_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         deal.canonical_key,
@@ -152,6 +167,7 @@ class DealStorage:
                         p.title,
                         p.url,
                         p.price_usd,
+                        p.price_krw,
                         deal.score,
                         1 if notified else 0,
                         now_iso,
@@ -162,14 +178,16 @@ class DealStorage:
             else:
                 new_notified = 1 if (notified or existing["notified"]) else 0
                 new_notified_at = now_iso if notified else existing["notified_at"]
-                # Keep lowest notified price so we only re-alert on deeper drops
                 stored_price = p.price_usd if notified else (
                     p.price_usd if existing["price_usd"] is None else existing["price_usd"]
+                )
+                stored_krw = p.price_krw if notified else (
+                    p.price_krw if existing.get("price_krw") is None else existing.get("price_krw")
                 )
                 self._conn.execute(
                     """
                     UPDATE seen_deals
-                    SET title = ?, url = ?, price_usd = ?, score = ?,
+                    SET title = ?, url = ?, price_usd = ?, price_krw = ?, score = ?,
                         notified = ?, last_seen_at = ?, notified_at = ?
                     WHERE canonical_key = ?
                     """,
@@ -177,6 +195,7 @@ class DealStorage:
                         p.title,
                         p.url,
                         stored_price,
+                        stored_krw,
                         max(deal.score, int(existing["score"])),
                         new_notified,
                         now_iso,
