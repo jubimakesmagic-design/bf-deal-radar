@@ -414,6 +414,7 @@ def clean_product_query(title: str) -> str:
 
 _KR_RETAILERS: list[tuple[str, str]] = [
     ("쿠팡와우", "쿠팡와우"),
+    ("쿠팡로켓", "쿠팡"),
     ("쿠팡", "쿠팡"),
     ("네이버페이", "네이버페이"),
     ("네이버", "네이버"),
@@ -427,33 +428,61 @@ _KR_RETAILERS: list[tuple[str, str]] = [
     ("lotteon", "롯데온"),
     ("ssg", "SSG"),
     ("쓱닷컴", "SSG"),
+    ("신세계몰", "SSG"),
     ("하이마트", "하이마트"),
     ("카카오톡딜", "카카오톡딜"),
     ("카카오메이커스", "카카오메이커스"),
-    ("카카오", "카카오"),
     ("톡딜", "카카오톡딜"),
+    ("카카오", "카카오"),
+    ("토스쇼핑", "토스쇼핑"),
+    ("토스", "토스쇼핑"),
     ("cj온스타일", "CJ온스타일"),
     ("지에스샵", "GS샵"),
     ("gs샵", "GS샵"),
     ("gsshop", "GS샵"),
     ("오늘의집", "오늘의집"),
     ("무신사", "무신사"),
+    ("29cm", "29CM"),
+    ("w컨셉", "W컨셉"),
+    ("지그재그", "지그재그"),
+    ("에이블리", "에이블리"),
+    ("ssf샵", "SSF샵"),
+    ("크림", "KREAM"),
     ("올리브영", "올리브영"),
     ("홈플러스", "홈플러스"),
     ("이마트", "이마트"),
+    ("코스트코", "코스트코"),
+    ("농협몰", "농협몰"),
+    ("우체국몰", "우체국몰"),
     ("알리익스프레스", "알리익스프레스"),
     ("알리", "알리익스프레스"),
     ("스팀", "스팀"),
+    ("에픽게임즈", "에픽게임즈"),
     ("플레이스토어", "플레이스토어"),
     ("컴퓨존", "컴퓨존"),
     ("다나와", "다나와"),
-    ("티몬", "티몬"),
-    ("위메프", "위메프"),
     ("컬리", "마켓컬리"),
     ("배민", "배달의민족"),
+    ("나이키", "나이키"),
+    ("아디다스", "아디다스"),
+    ("유니클로", "유니클로"),
 ]
 
-_KR_WON_RE = re.compile(r"(?<!\d)(\d{1,3}(?:,\d{3})+|\d{4,7})\s*원")
+
+def normalize_kr_retailer(name: str | None) -> str | None:
+    """Normalize an explicit Korean shopping mall name (e.g. '지마켓' -> 'G마켓')."""
+    if not name:
+        return None
+    cleaned = html.unescape(name).strip()
+    if not cleaned:
+        return None
+    low = cleaned.lower()
+    for needle, label in _KR_RETAILERS:
+        if needle in low:
+            return label
+    return cleaned[:20]
+
+_KR_WON_RE = re.compile(r"(?:₩\s*|(?<!\d))(\d{1,3}(?:,\d{3})+|\d{4,7})\s*원|₩\s*(\d{1,3}(?:,\d{3})+|\d{4,7})")
 _KR_MAN_WON_RE = re.compile(r"(?<!\d)(\d{1,3}(?:\.\d{1,2})?)\s*만\s*(?:(\d{1,4})\s*천?)?\s*원?")
 _KR_SLASH_PRICE_RE = re.compile(r"(\d{1,3}(?:,\d{3})+)\s*/\s*(?:무료|무배|와우|네멤|배송|유배|\d)")
 _KR_NON_ITEM_PREFIX_RE = re.compile(
@@ -467,16 +496,17 @@ _KR_PCT_RE = re.compile(r"(\d{1,2})\s*%\s*(?:할인|세일|off|특가|적립)?",
 
 
 def extract_krw_price(title: str, description: str = "") -> int | None:
-    """Extract Korean Won price (e.g., 18,930원, 43,610원/무배, 12.9만원) from deal title."""
+    """Extract Korean Won price (e.g., 18,930원, ₩25,990, 43,610원/무배, 12.9만원) from deal title."""
     for text in (title, description[:200]):
         if not text:
             continue
-        # 1. Explicit "NN,NNN원"
+        # 1. Explicit "NN,NNN원" or "₩NN,NNN"
         for m in _KR_WON_RE.finditer(text):
             before = text[max(0, m.start() - 14) : m.start()]
             if _KR_NON_ITEM_PREFIX_RE.search(before):
                 continue
-            val = int(m.group(1).replace(",", ""))
+            digits = m.group(1) or m.group(2)
+            val = int(digits.replace(",", ""))
             if 500 <= val <= 50_000_000:
                 return val
 

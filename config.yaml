@@ -7,11 +7,11 @@ radar:
   # - 66~72: 진짜 할인 폭이 크거나 역대가 검증된 딜 위주 (최적 기본값)
   # - 80+: 초특가 / 교차검증 역대가만 수신
   min_score: 66
-  # 국내 핫딜(쿠팡·네이버·지마켓·롯데온 등 전 품목) 최소 알림 점수
-  kr_min_score: 56
+  # 국내 핫딜(쿠팡·네이버·G마켓·롯데온·무신사·알리 등 전 품목) 최소 알림 점수
+  kr_min_score: 62
 
   # 한 번 실행 시 최대 발송 알림 수 (첫 실행 시 알림 폭탄 방지)
-  max_alerts_per_run: 8
+  max_alerts_per_run: 10
 
   # 이 시간(시간 단위) 이내 올라온 최신 딜만 알림 대상
   max_age_hours: 18
@@ -98,6 +98,54 @@ sources:
     base_score: 12
     category_hint: "가전/홈"
 
+  - name: "DealNews Fashion & Apparel"
+    id: "dealnews_clothing"
+    type: "dealnews"
+    url: "https://www.dealnews.com/c202/Clothing-Accessories/?rss=1"
+    enabled: true
+    base_score: 12
+    category_hint: "패션/의류"
+
+  - name: "DealNews Gaming & Toys"
+    id: "dealnews_gaming"
+    type: "dealnews"
+    url: "https://www.dealnews.com/c186/Gaming-Toys/?rss=1"
+    enabled: true
+    base_score: 12
+    category_hint: "게임/완구"
+
+  - name: "DealNews Sports & Fitness"
+    id: "dealnews_sports"
+    type: "dealnews"
+    url: "https://www.dealnews.com/c211/Sports-Fitness/?rss=1"
+    enabled: true
+    base_score: 12
+    category_hint: "스포츠/캠핑"
+
+  - name: "DealNews Health & Beauty"
+    id: "dealnews_health"
+    type: "dealnews"
+    url: "https://www.dealnews.com/c756/Health-Beauty/?rss=1"
+    enabled: true
+    base_score: 12
+    category_hint: "건강/뷰티"
+
+  - name: "DealNews Automotive & Tools"
+    id: "dealnews_auto"
+    type: "dealnews"
+    url: "https://www.dealnews.com/c238/Automotive/?rss=1"
+    enabled: true
+    base_score: 12
+    category_hint: "자동차/공구"
+
+  - name: "Hip2Save Everyday Deals"
+    id: "hip2save"
+    type: "generic"
+    url: "https://hip2save.com/feed/"
+    enabled: true
+    base_score: 12
+    category_hint: "생활/식품"
+
   - name: "9to5Toys"
     id: "9to5toys"
     type: "9to5toys"
@@ -130,7 +178,90 @@ sources:
     base_score: 13
     category_hint: "IT/게이밍"
 
-  # === 🇰🇷 국내 핫딜 커뮤니티 (쿠팡·네이버·G마켓·11번가·롯데온·SSG 등 전 품목) ===
+  # === 🇰🇷 국내 핫딜 커뮤니티 & 쿠팡 특화 (쿠팡·네이버·G마켓·11번가·롯데온·무신사·알리 등 전 품목) ===
+  - name: "다사자 쿠팡 핫딜"
+    id: "dasaja_coupang"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/bbs/board.php?bo_table=saja_korea&wr_1=%EC%BF%A0%ED%8C%A1"
+    enabled: true
+    base_score: 22
+    category_hint: "쿠팡핫딜"
+
+  - name: "다사자 BEST 핫딜"
+    id: "dasaja_best"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/saja_hotdeal"
+    enabled: true
+    base_score: 20
+    category_hint: "국내핫딜"
+
+  - name: "다사자 국내 딜"
+    id: "dasaja_korea"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/saja_korea"
+    enabled: true
+    base_score: 16
+    category_hint: "국내핫딜"
+
+  - name: "다사자 알리 딜"
+    id: "dasaja_ali"
+    type: "dasaja"
+    region: "KR"
+    url: "https://dasaja.co.kr/saja_ali"
+    enabled: true
+    base_score: 16
+    category_hint: "알리핫딜"
+
+  # 핫구사: 뽐뿌·에펨코리아·아카라이브·퀘이사존·쿨엔조이·어미새·루리웹·ZOD 8개 커뮤니티 실시간 + 12개월 최저가 검증
+  - name: "핫구사 실시간 핫딜"
+    id: "hotgusa_live"
+    type: "hotgusa"
+    region: "KR"
+    url: "https://www.hotgusa.com/"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
+  - name: "핫구사 12개월 최저가"
+    id: "hotgusa_lowest"
+    type: "hotgusa"
+    region: "KR"
+    url: "https://www.hotgusa.com/lowest"
+    enabled: true
+    base_score: 18
+    category_hint: "국내핫딜"
+
+  # 어미새: 국내/해외 패션·신발·아우터·라이프스타일 핫딜
+  - name: "어미새 인기정보"
+    id: "eomisae_fs"
+    type: "eomisae"
+    region: "KR"
+    url: "https://eomisae.co.kr/fs"
+    enabled: true
+    base_score: 18
+    category_hint: "패션/의류"
+
+  - name: "어미새 패션정보"
+    id: "eomisae_os"
+    type: "eomisae"
+    region: "KR"
+    url: "https://eomisae.co.kr/os"
+    enabled: true
+    base_score: 16
+    category_hint: "패션/의류"
+
+  - name: "어미새 기타정보"
+    id: "eomisae_rt"
+    type: "eomisae"
+    region: "KR"
+    url: "https://eomisae.co.kr/rt"
+    enabled: true
+    base_score: 16
+    category_hint: "국내핫딜"
+
   - name: "루리웹 핫딜"
     id: "ruliweb_hotdeal"
     type: "ruliweb"
@@ -157,6 +288,15 @@ sources:
     enabled: true
     base_score: 18
     category_hint: "국내핫딜"
+
+  - name: "딜바다 해외핫딜"
+    id: "dealbada_oversea"
+    type: "dealbada"
+    region: "KR"
+    url: "https://www.dealbada.com/bbs/board.php?bo_table=deal_oversea"
+    enabled: true
+    base_score: 18
+    category_hint: "해외핫딜"
 
   # 로컬 PC / 홈서버 IP에서 실행 시 활성화 가능 (GitHub Actions IP는 Reddit 429 제한 가능)
   - name: "Reddit r/buildapcsales"
@@ -339,6 +479,8 @@ filters:
     - "응모"
     - "추첨"
     - "일시 무료"
+    - "전체 공개로 전환"
+    - "미달 조건"
 
   # 리퍼/오픈박스/중고 상품 감점 (완전 제외하려면 위 exclude_keywords에 추가)
   condition_penalty_keywords:

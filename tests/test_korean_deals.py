@@ -276,3 +276,159 @@ def test_extract_direct_buy_url_from_ruliweb_and_clien_posts():
     assert row1[0]["url"] == "https://www.coupang.com/vp/products/877132"
     assert row1[1]["text"] == "💬 원글/댓글"
     assert row1[1]["url"] == "https://bbs.ruliweb.com/market/board/1020/read/109421"
+
+
+def test_parse_hotgusa_dasaja_eomisae_and_cross_community_dedup():
+    from bf_deal_radar.sources.korean import (
+        _pick_buy_url_lookup_target,
+        parse_dasaja_html,
+        parse_eomisae_html,
+        parse_hotgusa_html,
+    )
+    from bf_deal_radar.verifier import classify_korean_category
+
+    now_kst = datetime(2026, 11, 27, 11, 30, tzinfo=KST)
+
+    hotgusa_html = (
+        '<script>kit.start(app, el, {data:[null,{type:"data",data:{products:['
+        '{community_id:7,id:"7_106001",title:"이클립스 페퍼민트향 캔디 34g 10개",price:12600,'
+        'delivery_price:0,currency_code:0,reg_date:"2026-11-27T11:10:00+09:00",is_end:false,'
+        'view_cnt:1200,cmt_cnt:8,recm_cnt:5,mall_name:"쿠팡",'
+        'lowestLabel:{type:"lowest",months:12,avgDiffPct:28,compareCnt:18}},'
+        '{community_id:1,id:"1_109421",title:"[쿠팡] 품절 테스트",price:9900,'
+        'delivery_price:0,currency_code:0,reg_date:"2026-11-27T10:00:00+09:00",is_end:true,'
+        'view_cnt:100,cmt_cnt:0,recm_cnt:0,mall_name:"지마켓"}'
+        ']}}]});</script>'
+    )
+    hg_src = SourceConfig(id="hotgusa_lowest", name="핫구사 12개월 최저가", type="hotgusa", region="KR", url="https://www.hotgusa.com/lowest", base_score=18)
+    hg_deals = parse_hotgusa_html(hotgusa_html, hg_src, now_kst=now_kst)
+    assert len(hg_deals) == 2
+    assert hg_deals[0].source_name == "핫구사·에펨코리아"
+    assert hg_deals[0].retailer == "쿠팡"
+    assert hg_deals[0].price_krw == 12600
+    assert hg_deals[0].discount_pct == 28.0
+    assert "12개월 평균가 대비 28%" in hg_deals[0].description
+    assert hg_deals[1].source_name == "핫구사·루리웹"
+    assert hg_deals[1].retailer == "G마켓"
+    assert hg_deals[1].is_sold_out is True
+
+    dasaja_html = """
+    <tr class="its_write ">
+      <td><img src="/images/dasaja/icon/svg/fire_icon.svg" alt=""></td>
+      <td><div class="double_line_wrapper wr_1">
+        <div class="cate">사탕</div>
+        <div class="mall"><a href="/bbs/board.php?bo_table=saja_korea&wr_1=쿠팡"></a></div>
+      </div></td>
+      <td><div class="subject_wrapper">
+        <a href="/saja_korea/610127">[쿠팡] 이클립스 페퍼민트향 캔디 34g 10개</a>
+      </div></td>
+      <td><div class="double_line_wrapper price">
+        <div class="min-price"><span>12,600</span><span>원</span></div>
+        <div>무료배송</div>
+      </div></td>
+      <td>4/0</td>
+      <td>1.5k</td>
+      <td><div class="double_line_wrapper write"><div>11:11</div></div></td>
+    </tr>
+    """
+    ds_src = SourceConfig(id="dasaja_coupang", name="다사자 쿠팡 핫딜", type="dasaja", region="KR", url="https://dasaja.co.kr/saja_korea", base_score=22)
+    ds_deals = parse_dasaja_html(dasaja_html, ds_src, now_kst=now_kst)
+    assert len(ds_deals) == 1
+    assert ds_deals[0].retailer == "쿠팡"
+    assert ds_deals[0].price_krw == 12600
+    assert ds_deals[0].shipping_label == "무료배송"
+    assert ds_deals[0].staff_pick is True
+    assert ds_deals[0].thumb_score == 4
+    assert ds_deals[0].view_count == 1500
+
+    # Cross-community clustering merges Dasaja Coupang + Hotgusa FMKorea
+    clustered = cluster_deals([ds_deals[0], hg_deals[0]])
+    assert len(clustered) == 1
+    cfg = AppConfig(kr_min_score=62, min_price_krw=3000)
+    scored = verify_and_score(clustered[0], cfg, usd_krw_rate=1350.0, now=now_kst.astimezone(timezone.utc))
+    assert any("교차 검증" in r and "다사자" in r and "에펨코리아" in r for r in scored.reasons)
+    assert any("커뮤니티 인기(불꽃)" in r for r in scored.reasons)
+    assert scored.score >= 85
+
+    # Ensure Hotgusa·루리웹 + 루리웹 핫딜 do NOT double-count as 2 distinct communities
+    same_comm = ScoredDeal(
+        canonical_key="url:ruli-same",
+        primary=RawDeal(
+            source_id="ruliweb",
+            source_name="루리웹 핫딜",
+            source_type="ruliweb",
+            source_base_score=22,
+            category_hint="음식",
+            external_id="r1",
+            title="[쿠팡] 테스트 과자 10,000원",
+            url="https://bbs.ruliweb.com/market/board/1020/read/1",
+            region="KR",
+            published_at=now_kst.astimezone(timezone.utc),
+            price_krw=10000,
+        ),
+        merged_sources=["루리웹 핫딜", "핫구사·루리웹"],
+    )
+    verify_and_score(same_comm, cfg, usd_krw_rate=1350.0, now=now_kst.astimezone(timezone.utc))
+    assert not any("교차 검증" in r for r in same_comm.reasons)
+
+    # Eomisae parser: popular row + card dedup + shorthand prices + locked-post skip + direct buy URL
+    eomisae_html = """
+    <tr class="is_popular">
+      <td class="title">
+        <span class="cate">패션국내</span>
+        <a class="pjax" href="/fs/213251940">아크테릭스 버텍스 알파인 GTX 비브람 20.9 (무배)</a>
+        <a href="/fs/213251940#C_" class="pjax tt_cm">14</a>
+      </td>
+      <td>26.11.27</td>
+      <td><i class="ion-ios-heart"></i> 37</td>
+    </tr>
+    <div class="card_el n_ntc clear">
+      <span class="cate">패션해외,</span><span>26.11.27</span>
+      <h3><a class="pjax" href="/fs/213251999">15분 뒤 전체 공개로 전환 (미달 조건 : 레벨)</a></h3>
+    </div>
+    <div class="card_el n_ntc clear">
+      <span class="cate">패션해외,</span><span>26.11.27</span>
+      <h3><a class="pjax" href="/fs/213252001">일마존 F/CE 950 백팩 14.8발</a></h3>
+      <span class="fr"><i class="ion-ios-eye"></i>2,100</span>
+      <span class="fr"><i class="ion-ios-chatbubble"></i>21</span>
+      <span class="fr"><i class="ion-ios-heart"></i>26</span>
+    </div>
+    <div class="card_el n_ntc clear">
+      <span class="cate">패션국내,</span><span>26.11.27</span>
+      <h3><a class="pjax" href="/fs/213252002">아디다스 토바코, 컨트리 OG ₩25,990~</a></h3>
+      <span class="fr"><i class="ion-ios-heart"></i>44</span>
+    </div>
+    """
+    eo_src = SourceConfig(id="eomisae_fs", name="어미새 인기정보", type="eomisae", region="KR", url="https://eomisae.co.kr/fs", base_score=18)
+    eo_deals = parse_eomisae_html(eomisae_html, eo_src, now_kst=now_kst)
+    assert len(eo_deals) == 3  # locked post skipped!
+    assert eo_deals[0].price_krw == 209000
+    assert eo_deals[0].staff_pick is True
+    assert eo_deals[1].price_krw == 148000
+    assert eo_deals[1].view_count == 2100
+    assert eo_deals[2].price_krw == 25990
+    assert eo_deals[2].retailer == "아디다스"
+
+    eomisae_post = '<div class="rd_body clear"><article><a href="https://www.zappos.com/p/arcteryx/9929251">buy</a></article></div>'
+    assert extract_buy_url_from_post_html(eomisae_post, "eomisae") == "https://www.zappos.com/p/arcteryx/9929251"
+
+    # Cross-source buy URL lookup falls back to merged Ruliweb URL when primary is Dasaja
+    merged_dasaja = ScoredDeal(
+        canonical_key="url:ds-ruli",
+        primary=ds_deals[0],
+        merged_sources=["다사자 쿠팡 핫딜", "루리웹 핫딜"],
+        merged_urls={
+            "다사자 쿠팡 핫딜": "https://dasaja.co.kr/saja_korea/610127",
+            "루리웹 핫딜": "https://bbs.ruliweb.com/market/board/1020/read/109421",
+        },
+    )
+    assert _pick_buy_url_lookup_target(merged_dasaja) == (
+        "https://bbs.ruliweb.com/market/board/1020/read/109421",
+        "ruliweb",
+    )
+
+    # Expanded category classification checks
+    assert classify_korean_category("조선호텔 포기김치 8kg", "포기김치") == "🍔 식품/간식"
+    assert classify_korean_category("얼라이브 멀티 비타 구미", "멀티비타민") == "🧴 뷰티/건강"
+    assert classify_korean_category("타원볼 4P+미니볼 세트", "도자기") == "🏠 생활/주방"
+    assert classify_korean_category("아크테릭스 버텍스 알파인", "패션국내") == "👕 패션/잡화"

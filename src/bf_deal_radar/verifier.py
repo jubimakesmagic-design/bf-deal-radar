@@ -70,10 +70,22 @@ _PLATFORM_MAP = {
     "the verge": "The Verge",
     "cnet": "CNET",
     "ign": "IGN",
+    "hip2save": "Hip2Save",
     "reddit": "Reddit",
+    # Map specific Korean communities BEFORE generic aggregator names so
+    # "핫구사·루리웹" and "루리웹 핫딜" collapse into one platform ("루리웹").
     "루리웹": "루리웹",
     "클리앙": "클리앙",
     "딜바다": "딜바다",
+    "어미새": "어미새",
+    "뽐뿌": "뽐뿌",
+    "에펨코리아": "에펨코리아",
+    "아카라이브": "아카라이브",
+    "퀘이사존": "퀘이사존",
+    "쿨엔조이": "쿨엔조이",
+    "zod": "ZOD",
+    "다사자": "다사자",
+    "핫구사": "핫구사",
 }
 
 _KR_TRUSTED_MALLS = {
@@ -87,14 +99,28 @@ _KR_TRUSTED_MALLS = {
     "SSG",
     "하이마트",
     "카카오톡딜",
+    "토스쇼핑",
     "올리브영",
     "무신사",
+    "29CM",
+    "W컨셉",
+    "지그재그",
+    "SSF샵",
+    "KREAM",
     "홈플러스",
     "이마트",
+    "코스트코",
+    "농협몰",
+    "우체국몰",
+    "마켓컬리",
     "GS샵",
     "CJ온스타일",
     "오늘의집",
     "컴퓨존",
+    "알리익스프레스",
+    "나이키",
+    "아디다스",
+    "유니클로",
 }
 
 _KR_HOT_VALUE_RE = re.compile(
@@ -105,37 +131,74 @@ _KR_HOT_VALUE_RE = re.compile(
 _KR_CATEGORY_MAP = {
     "음식": "🍔 식품/간식",
     "식품/건강": "🍔 식품/간식",
+    "사탕": "🍔 식품/간식",
+    "과자": "🍔 식품/간식",
+    "음료": "🍔 식품/간식",
     "PC/가전": "💻 IT/가전",
     "디지털": "💻 IT/가전",
-    "게임S/W": "🎮 게임/SW",
-    "생활용품": "🏠 생활/가전",
-    "의류": "👕 패션/뷰티",
-    "패션/뷰티": "👕 패션/뷰티",
+    "컴퓨터": "💻 IT/가전",
+    "가전": "🏠 스마트홈/가전",
+    "게임S/W": "🎮 게이밍",
+    "게임/완구": "🎮 게이밍",
+    "생활용품": "🏠 생활/주방",
+    "의류": "👕 패션/잡화",
+    "의류/잡화": "👕 패션/잡화",
+    "패션국내": "👕 패션/잡화",
+    "패션해외": "👕 패션/잡화",
+    "패션/뷰티": "👕 패션/잡화",
+    "패션/의류": "👕 패션/잡화",
+    "화장품": "🧴 뷰티/건강",
+    "건강/뷰티": "🧴 뷰티/건강",
+    "등산/캠핑": "🏕️ 스포츠/캠핑",
+    "스포츠/캠핑": "🏕️ 스포츠/캠핑",
+    "자동차/공구": "🚗 자동차/공구",
+    "육아": "🍼 육아/반려동물",
     "상품권": "🎟️ 상품권/쿠폰",
     "상품정보": "🛍️ 국내핫딜",
+    "쿠팡핫딜": "🛍️ 쿠팡핫딜",
+    "알리핫딜": "🌏 알리/직구",
+    "해외핫딜": "🌏 해외직구",
     "이벤트정보": "🎁 이벤트/혜택",
 }
 
 _CATEGORY_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:ssd|nvme|ryzen|processor|graphics\s+card|motherboard|ddr5|cpu|nas|synology)\b", re.I), "💾 SSD/PC부품"),
     (re.compile(r"\b(?:macbook|laptop|chromebook|thinkpad|legion|gaming\s+pc|mini\s+pc|desktop\s+pc)\b|노트북|맥북", re.I), "💻 노트북/PC"),
-    (re.compile(r"\b(?:headphone|earbud|airpods|soundbar|speaker|bose|sonos|sennheiser|beats|wh-1000xm)\b|이어폰|헤드폰|에어팟|스피커", re.I), "🎧 음향/오디오"),
+    (re.compile(r"\b(?:headphone|earbud|airpods|soundbar|speaker|bose|sonos|sennheiser|beats|wh-1000xm)\b|이어폰|헤드폰|에어팟|스피커|마이크", re.I), "🎧 음향/오디오"),
     (re.compile(r"\b(?:smartwatch|garmin|apple\s+watch|smart\s+ring|ringconn|forerunner|fenix|fēnix|instinct)\b|애플워치|갤럭시워치", re.I), "⌚ 스마트워치/웨어러블"),
     (re.compile(r"\b(?:ipad|tablet|iphone|pixel|galaxy|kindle|e-reader)\b|아이패드|아이폰|갤럭시|태블릿", re.I), "📱 태블릿/모바일"),
-    (re.compile(r"\b(?:oled|qled|monitor|4k\s+tv|smart\s+tv|led\s+tv|projector|fire\s+tv)\b|모니터|티비", re.I), "🖥️ 모니터/TV"),
-    (re.compile(r"\b(?:ps5|playstation|nintendo|switch\s*2?|xbox|steam\s+deck|controller)\b|스팀|닌텐도|플스", re.I), "🎮 게이밍"),
+    (re.compile(r"\b(?:oled|qled|monitor|4k\s+tv|smart\s+tv|led\s+tv|projector|fire\s+tv)\b|모니터|(?:^|[\s\[\(])티비(?:$|[\s\]\)])", re.I), "🖥️ 모니터/TV"),
+    (re.compile(r"\b(?:ps5|playstation|nintendo|switch\s*2?|xbox|steam\s+deck|controller|lego)\b|스팀|닌텐도|플스|마인크래프트|레고", re.I), "🎮 게이밍"),
     (re.compile(r"\b(?:camera|gopro|dji|insta360|lens|drone)\b|카메라|드론", re.I), "📷 카메라/드론"),
-    (re.compile(r"\b(?:charger|power\s+bank|gan|usb-c|hub|router|wi-fi|wifi|keyboard|mouse|airtag)\b|파워뱅크|보조배터리|충전기|키보드|마우스", re.I), "🔌 주변기기/충전"),
-    (re.compile(r"\b(?:smart\s+plug|thermostat|security\s+cam|solocam|vacuum|roborock|dyson|espresso|coffee|heater|purifier)\b|청소기|공기청정기|커피|에스프레소", re.I), "🏠 스마트홈/가전"),
+    (re.compile(r"\b(?:charger|power\s+bank|gan|usb-c|hub|router|wi-fi|wifi|keyboard|mouse|airtag)\b|파워뱅크|보조배터리|충전기|키보드|마우스|보호필름", re.I), "🔌 주변기기/충전"),
+    (re.compile(r"\b(?:smart\s+plug|thermostat|security\s+cam|solocam|vacuum|roborock|dyson|espresso|coffee\s+maker|heater|purifier|blender|air\s+fryer)\b|청소기|공기청정기|온풍기|가습기|드라이어|에스프레소", re.I), "🏠 스마트홈/가전"),
+    (re.compile(r"\b(?:jacket|hoodie|sweater|sneakers?|running\s+shoes?|boots?|jeans?|denim|shirt|coat|parka|fleece|nike|adidas|arcteryx|arc'teryx|lululemon)\b|패딩|자켓|재킷|코트|후드|맨투맨|니트|데님|운동화|러닝화|스니커즈|부츠|아크테릭스|닥터마틴|보드숏|가방|백팩", re.I), "👕 패션/잡화"),
+    (re.compile(r"\b(?:shampoo|lotion|serum|sunscreen|vitamin|supplement|protein|perfume|skincare|toothpaste)\b|로션|선크림|샴푸|트리트먼트|치약|칫솔|화장품|세럼|비타민|멀티비타|비타|유산균|영양제|홍삼", re.I), "🧴 뷰티/건강"),
+    (re.compile(r"\b(?:tent|camping|hiking|golf|dumbbell|treadmill|bicycle|bike|cooler|yeti)\b|캠핑|등산|텐트|골프|자전거|텀블러", re.I), "🏕️ 스포츠/캠핑"),
+    (re.compile(r"\b(?:drill|dewalt|makita|milwaukee|wrench|toolbox|dash\s*cam|wiper|tire)\b|전동드릴|스크루|공구|블랙박스|와이퍼|세차", re.I), "🚗 자동차/공구"),
+    (re.compile(r"\b(?:diaper|stroller|pet\s+food|cat\s+litter|dog\s+food)\b|기저귀|분유|물티슈|고양이|강아지|사료", re.I), "🍼 육아/반려동물"),
+    (re.compile(r"감귤|샤인머스켓|고구마|계란|우유|라면|우동|만두|떡갈비|닭갈비|곱창|갈비탕|과자|스낵|캔디|초코|젤리|콜라|탄산|음료|주스|매실|커피|원두|드립백|생수|햇반|식용유|고등어|삼겹살|목살|한돈|오리|치킨|피자|아이스크림|배스킨|베스킨|레몬즙|김치|연어|아보카도", re.I), "🍔 식품/간식"),
+    (re.compile(r"\b(?:organizer|detergent|cookware|skillet|pan|towel|bedding)\b|세제|섬유유연제|휴지|화장지|주방세제|프라이팬|냄비|수건|도자기|그릇|타원볼|식기", re.I), "🏠 생활/주방"),
 ]
 
 
 def classify_korean_category(title: str, category_hint: str) -> str:
     """Assign a clean Korean category tag based on product title or community category."""
-    if category_hint in _KR_CATEGORY_MAP and category_hint in ("음식", "식품/건강", "상품권", "의류", "패션/뷰티"):
+    if category_hint in _KR_CATEGORY_MAP and category_hint in (
+        "음식",
+        "식품/건강",
+        "상품권",
+        "의류",
+        "의류/잡화",
+        "패션국내",
+        "패션해외",
+        "패션/뷰티",
+        "패션/의류",
+    ):
         return _KR_CATEGORY_MAP[category_hint]
+    combined = f"{title} {category_hint}"
     for pattern, label in _CATEGORY_RULES:
-        if pattern.search(title):
+        if pattern.search(combined):
             return label
     if category_hint in _KR_CATEGORY_MAP:
         return _KR_CATEGORY_MAP[category_hint]
@@ -261,6 +324,10 @@ def _verify_and_score_kr(
     elif views >= 2000:
         score += 6
 
+    if primary.staff_pick:
+        score += 14
+        reasons.append("🔥 커뮤니티 인기(불꽃) 핫딜")
+
     # 7. Cross-community confirmation (spotted on 2+ Korean sites!)
     platforms = _distinct_platforms(deal.merged_sources)
     if len(platforms) >= 2:
@@ -283,7 +350,11 @@ def _verify_and_score_kr(
             score += 10
             reasons.append(f"💸 {pct:.0f}% 할인")
 
-    if _KR_HOT_VALUE_RE.search(full_text):
+    if "개월 평균가 대비" in primary.description:
+        deal.is_historical_low = True
+        score += 16
+        reasons.append(f"🏆 {primary.description}")
+    elif _KR_HOT_VALUE_RE.search(full_text):
         deal.is_historical_low = "역대" in full_text or "최저" in full_text
         score += 16
         reasons.append("🏆 역대가/초특가 키워드")
