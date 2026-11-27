@@ -1,0 +1,97 @@
+name: Black Friday Deal Radar
+
+on:
+  schedule:
+    # 매 5분 자동 수집 (GitHub Actions 공식 표준 최단 스케줄)
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "텔레그램 발송 없이 로그만 확인 (Dry Run)"
+        type: boolean
+        default: false
+      min_score:
+        description: "최소 알림 점수 덮어쓰기 (비워두면 config.yaml 기본값)"
+        type: string
+        default: ""
+
+# 최소 권한 원칙: 리포지토리 읽기 전용 권한만 부여
+permissions:
+  contents: read
+
+concurrency:
+  group: bf-deal-radar-state
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install bf-deal-radar
+        run: pip install -e .
+
+      - name: Restore seen-deals SQLite DB
+        uses: actions/cache/restore@v4
+        with:
+          path: data/radar.db
+          key: bf-radar-db-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            bf-radar-db-
+
+      - name: Run Black Friday Deal Radar
+        id: radar
+        env:
+          # 모든 시크릿과 사용자 입력은 셸 인라인 보간 대신 환경변수로 안전하게 전달
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          RADAR_MIN_SCORE: ${{ inputs.min_score }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          BEFORE_HASH=""
+          if [ -f data/radar.db ]; then
+            BEFORE_HASH=$(sha256sum data/radar.db | awk '{print $1}')
+          fi
+
+          ARGS=()
+          if [ "${INPUT_DRY_RUN:-false}" = "true" ]; then
+            ARGS+=(--dry-run)
+          elif [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "⚠️ TELEGRAM_BOT_TOKEN 또는 TELEGRAM_CHAT_ID Secrets가 아직 설정되지 않았습니다."
+            echo "   이번 실행은 --dry-run 모드로 동작합니다."
+            ARGS+=(--dry-run)
+          fi
+          bf-radar run "${ARGS[@]}"
+
+          AFTER_HASH=""
+          if [ -f data/radar.db ]; then
+            AFTER_HASH=$(sha256sum data/radar.db | awk '{print $1}')
+          fi
+          if [ -n "$AFTER_HASH" ] && [ "$BEFORE_HASH" != "$AFTER_HASH" ]; then
+            echo "db_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "db_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save seen-deals SQLite DB (only when changed)
+        if: always() && steps.radar.outputs.db_changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: data/radar.db
+          key: bf-radar-db-${{ github.run_id }}-${{ github.run_attempt }}
