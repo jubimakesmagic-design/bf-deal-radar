@@ -2,7 +2,7 @@ name: Black Friday Deal Radar
 
 on:
   schedule:
-    # 매 5분 자동 수집 (GitHub Actions 공식 표준 최단 스케줄)
+    # 매 5분 자동 수집 (GitHub Actions 공식 표준 최단 스케줄) 
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
