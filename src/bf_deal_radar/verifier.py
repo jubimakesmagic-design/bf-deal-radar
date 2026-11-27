@@ -248,12 +248,17 @@ def _is_accessory_mention(title_lower: str, keyword: str, price_usd: float | Non
     return False
 
 
+_KR_PROMO_RANGE_RE = re.compile(
+    r"(?:모음전|외\s*다수|외\s*\d+종|外\s*\d+종|단\s*하루|단하루|골라담기|BEST상품|특가전|\d[\d,]*원\s*~)"
+)
+
+
 def _verify_and_score_kr(
     deal: ScoredDeal,
     config: AppConfig,
     now: datetime,
 ) -> ScoredDeal:
-    """Evaluate a Korean domestic hot deal across ALL product categories using community + discount proof."""
+    """Evaluate a Korean domestic hot deal with strict pillar caps (70+ genuine deals, 90+ rare mega-deals)."""
     primary = deal.primary
     title_lower = primary.title.lower()
     full_text = f"{primary.title}\n{primary.description}\n{primary.category or ''}".lower()
@@ -282,97 +287,136 @@ def _verify_and_score_kr(
             deal.excluded_reason = f"최소 가격 미달 ({primary.price_krw:,}원)"
             return deal
 
-    score = primary.source_base_score
+    # Normalized source credibility base (11~17 pts)
+    score = min(17, int(round(primary.source_base_score * 0.78)))
     reasons: list[str] = []
 
-    # 5. Community upvote / like proof (strongest Korean real-deal signal!)
     upvotes = primary.thumb_score or 0
     downvotes = primary.downvote_count or 0
-    if upvotes >= 30:
-        score += 32
+    comments = primary.comment_count or 0
+    views = primary.view_count or 0
+    platforms = _distinct_platforms(deal.merged_sources)
+
+    # 5. Pillar A — Community engagement proof (capped at 26 pts so viral small discounts cannot inflate to 100)
+    eng = 0
+    if upvotes >= 40:
+        eng += 16
         reasons.append(f"🔥 커뮤니티 추천 폭주 (+{upvotes})")
-    elif upvotes >= 12:
-        score += 24
+    elif upvotes >= 20:
+        eng += 13
         reasons.append(f"🔥 커뮤니티 고추천 (+{upvotes})")
+    elif upvotes >= 10:
+        eng += 9
+        reasons.append(f"👍 커뮤니티 추천 (+{upvotes})")
     elif upvotes >= 5:
-        score += 18
+        eng += 6
         reasons.append(f"👍 커뮤니티 추천 (+{upvotes})")
     elif upvotes >= 2:
-        score += 12
+        eng += 3
         reasons.append(f"👍 추천 (+{upvotes})")
+
+    if comments >= 30:
+        eng += 12
+        reasons.append(f"💬 댓글 폭발 ({comments}개)")
+    elif comments >= 15:
+        eng += 8
+        reasons.append(f"💬 뜨거운 반응 (댓글 {comments}개)")
+    elif comments >= 8:
+        eng += 5
+        reasons.append(f"💬 댓글 반응 ({comments}개)")
+    elif comments >= 4:
+        eng += 2
+
+    if views >= 10000:
+        eng += 5
+        reasons.append(f"👀 높은 관심 (조회 {views:,})")
+    elif views >= 4000:
+        eng += 2
+
+    if primary.staff_pick:
+        eng += 4
+        reasons.append("🔥 커뮤니티 인기(불꽃) 핫딜")
+
+    score += min(26, eng)
 
     if downvotes >= 3 and downvotes >= upvotes:
         score -= 28
         reasons.append(f"⚠️ 비추천 다수 (추천 {upvotes} / 비추 {downvotes})")
 
-    # 6. Comment velocity & view proof
-    comments = primary.comment_count or 0
-    if comments >= 20:
-        score += 22
-        reasons.append(f"💬 댓글 폭발 ({comments}개)")
-    elif comments >= 8:
-        score += 15
-        reasons.append(f"💬 뜨거운 반응 (댓글 {comments}개)")
-    elif comments >= 4:
-        score += 9
-        reasons.append(f"💬 댓글 반응 ({comments}개)")
+    # 6. Pillar B — Cross-community confirmation (2 sites +12, 3+ sites +18)
+    if len(platforms) >= 3:
+        score += 18
+        reasons.append(f"🔁 국내 {len(platforms)}개 커뮤니티 동시 포착 ({', '.join(platforms)})")
+    elif len(platforms) == 2:
+        score += 12
+        reasons.append(f"🔁 국내 2개 커뮤니티 교차 검증 ({', '.join(platforms)})")
 
-    views = primary.view_count or 0
-    if views >= 5000:
-        score += 10
-        reasons.append(f"👀 높은 관심 (조회 {views:,})")
-    elif views >= 2000:
-        score += 6
-
-    if primary.staff_pick:
-        score += 14
-        reasons.append("🔥 커뮤니티 인기(불꽃) 핫딜")
-
-    # 7. Cross-community confirmation (spotted on 2+ Korean sites!)
-    platforms = _distinct_platforms(deal.merged_sources)
-    if len(platforms) >= 2:
-        score += 25
-        reasons.append(f"🔁 국내 {len(platforms)}개 커뮤니티 교차 검증 ({', '.join(platforms)})")
-
-    # 8. Quantitative discount & bargain keywords
-    if primary.discount_pct is not None:
-        pct = primary.discount_pct
+    # 7. Pillar C — Discount depth & historical-low proof (unified, capped at 44 pts — no double-counting)
+    has_stat_low = "개월 평균가 대비" in primary.description
+    pct = primary.discount_pct
+    disc = 0
+    if pct is not None:
         if pct >= 50:
-            score += 28
+            disc = 34
             reasons.append(f"🔥 {pct:.0f}% 초특가 할인")
-        elif pct >= 35:
-            score += 22
+        elif pct >= 40:
+            disc = 29
             reasons.append(f"💥 {pct:.0f}% 대폭 할인")
-        elif pct >= 25:
-            score += 16
+        elif pct >= 30:
+            disc = 23
+            reasons.append(f"📉 {pct:.0f}% 대폭 할인")
+        elif pct >= 20:
+            disc = 15
             reasons.append(f"📉 {pct:.0f}% 할인")
         elif pct >= 15:
-            score += 10
+            disc = 8
             reasons.append(f"💸 {pct:.0f}% 할인")
 
-    if "개월 평균가 대비" in primary.description:
-        deal.is_historical_low = True
-        score += 16
-        reasons.append(f"🏆 {primary.description}")
+    # Cap unverified store-banner percentages on multi-item range promos (e.g. "모음전 8,900원~ (74%)")
+    if (
+        not has_stat_low
+        and disc > 10
+        and _KR_PROMO_RANGE_RE.search(primary.title)
+        and upvotes < 8
+        and comments < 8
+        and len(platforms) < 2
+    ):
+        disc = 10
+
+    if has_stat_low:
+        if pct is not None and pct >= 25:
+            deal.is_historical_low = True
+            disc = min(44, disc + 10)
+            reasons.append(f"🏆 {primary.description}")
+        elif pct is not None and pct >= 20:
+            deal.is_historical_low = True
+            disc = min(44, disc + 6)
+            reasons.append(f"🏆 {primary.description}")
     elif _KR_HOT_VALUE_RE.search(full_text):
         deal.is_historical_low = "역대" in full_text or "최저" in full_text
-        score += 16
-        reasons.append("🏆 역대가/초특가 키워드")
+        if pct is None:
+            disc = min(44, disc + 10)
+            reasons.append("🏆 역대가/초특가 키워드")
+        elif pct >= 20:
+            disc = min(44, disc + 4)
+            reasons.append("🏆 역대가/초특가 키워드")
 
-    # 9. Trusted domestic mall & free shipping bonus
+    score += disc
+
+    # 8. Trusted domestic mall & free shipping baseline (+3 / +2)
     if primary.retailer in _KR_TRUSTED_MALLS:
-        score += 8
+        score += 3
     if primary.shipping_label == "무료배송":
-        score += 4
+        score += 2
 
-    # 10. Optional watch keyword bonus (works for Korean/English keywords too)
+    # 9. Optional VIP watch keyword bonus (+8)
     matched_watch = [
         kw for kw in config.filters.watch_keywords if _contains_keyword(title_lower, kw)
     ]
     if matched_watch:
         deal.is_watch_match = True
         deal.matched_watch_keywords = matched_watch[:3]
-        score += 14
+        score += 8
         reasons.append(f"🚨 관심 키워드 ({', '.join(deal.matched_watch_keywords)})")
 
     # Down-rank vague promo notices with no concrete price and low community proof
@@ -426,66 +470,79 @@ def verify_and_score(
             deal.excluded_reason = f"최대 가격 초과 (${primary.price_usd:.2f})"
             return deal
 
-    score = primary.source_base_score
+    # Normalized source credibility base (10~20 pts)
+    score = min(20, int(round(primary.source_base_score * 0.85)))
     reasons: list[str] = []
 
-    # 4. Source reputation & community validation
+    # 4. Community & editor validation (capped at 18 pts)
     if primary.source_id == "slickdeals_fp":
         reasons.append("⭐ Slickdeals Frontpage (커뮤니티 검증)")
+    eng = 0
     if primary.thumb_score is not None:
-        if primary.thumb_score >= 100:
-            score += 18
+        if primary.thumb_score >= 150:
+            eng += 16
             reasons.append(f"🔥 커뮤니티 추천 폭주 (+{primary.thumb_score})")
-        elif primary.thumb_score >= 50:
-            score += 12
-            reasons.append(f"👍 커뮤니티 고추천 (+{primary.thumb_score})")
+        elif primary.thumb_score >= 80:
+            eng += 12
+            reasons.append(f"🔥 커뮤니티 고추천 (+{primary.thumb_score})")
+        elif primary.thumb_score >= 40:
+            eng += 8
+            reasons.append(f"👍 커뮤니티 추천 (+{primary.thumb_score})")
         elif primary.thumb_score >= 20:
-            score += 6
+            eng += 4
             reasons.append(f"👍 커뮤니티 추천 (+{primary.thumb_score})")
         elif primary.thumb_score < 0:
-            score -= 20
+            eng -= 20
             reasons.append(f"⚠️ 커뮤니티 비추천 ({primary.thumb_score})")
 
     if primary.staff_pick:
-        score += 16
+        eng += 11
         reasons.append("✅ DealNews 에디터 Staff Pick")
+
+    score += min(18, eng)
 
     # 5. Cross-platform confirmation (strongest real-deal signal!)
     platforms = _distinct_platforms(deal.merged_sources)
     if len(platforms) >= 3:
-        score += 30
+        score += 22
         reasons.append(f"🔁 {len(platforms)}개 사이트 동시 포착 ({', '.join(platforms)})")
     elif len(platforms) == 2:
-        score += 22
+        score += 15
         reasons.append(f"🔁 2개 사이트 교차 검증 ({', '.join(platforms)})")
 
-    # 6. Quantitative discount depth
+    # 6. Quantitative discount depth (max 36 pts)
     discount_points = 0
     if primary.discount_pct is not None:
         pct = primary.discount_pct
-        if pct >= 50:
-            discount_points = 34
+        if pct >= 60:
+            discount_points = 36
             reasons.append(f"🔥 {pct:.0f}% 초특가 할인")
-        elif pct >= 35:
+        elif pct >= 50:
+            discount_points = 32
+            reasons.append(f"🔥 {pct:.0f}% 초특가 할인")
+        elif pct >= 40:
             discount_points = 26
             reasons.append(f"💥 {pct:.0f}% 대폭 할인")
-        elif pct >= 25:
-            discount_points = 18
+        elif pct >= 30:
+            discount_points = 20
+            reasons.append(f"📉 {pct:.0f}% 할인")
+        elif pct >= 20:
+            discount_points = 13
             reasons.append(f"📉 {pct:.0f}% 할인")
         elif pct >= 15:
-            discount_points = 10
+            discount_points = 7
             reasons.append(f"💸 {pct:.0f}% 할인")
 
     if primary.savings_usd is not None:
         sav = primary.savings_usd
         sav_pts = 0
-        if sav >= 200:
-            sav_pts = 26
-        elif sav >= 100:
+        if sav >= 250:
+            sav_pts = 24
+        elif sav >= 120:
             sav_pts = 18
-        elif sav >= 50:
+        elif sav >= 60:
             sav_pts = 12
-        elif sav >= 25:
+        elif sav >= 30:
             sav_pts = 6
         if sav_pts > discount_points:
             discount_points = sav_pts
@@ -496,11 +553,11 @@ def verify_and_score(
     # 7. Historical low / price-drop verification
     if _ALL_TIME_LOW_RE.search(full_text):
         deal.is_historical_low = True
-        score += 25
+        score += 20
         reasons.append("🏆 역대 최저가(All-Time Low) 언급")
     elif _RECENT_LOW_RE.search(full_text):
         deal.is_historical_low = True
-        score += 16
+        score += 13
         reasons.append("📉 최근/연중 최저가 언급")
 
     # Internal price-history drop check (if we saw this exact item at a higher price earlier)
@@ -511,7 +568,7 @@ def verify_and_score(
         and primary.price_usd <= previous_low_usd * 0.90
     ):
         drop_pct = (1.0 - primary.price_usd / previous_low_usd) * 100.0
-        score += 18
+        score += 14
         reasons.append(f"📉 이전 포착가(${previous_low_usd:,.2f}) 대비 {drop_pct:.0f}% 추가 하락")
 
     # 8. User VIP watch keywords (strictly on title, excluding cheap accessories like "Apple Watch band")
@@ -524,7 +581,7 @@ def verify_and_score(
     if matched_watch:
         deal.is_watch_match = True
         deal.matched_watch_keywords = matched_watch[:3]
-        score += 18
+        score += 10
         reasons.append(f"🚨 관심 키워드 매칭 ({', '.join(deal.matched_watch_keywords)})")
 
     is_tech = primary.category_hint in ("IT/가전", "IT/PC", "IT/게이밍") or any(
@@ -532,7 +589,7 @@ def verify_and_score(
     )
     if is_tech:
         deal.is_tech_category = True
-        score += 12
+        score += 6
         if not matched_watch:
             reasons.append("💻 IT/PC/가전 관심 분야")
 

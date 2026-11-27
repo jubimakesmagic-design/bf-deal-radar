@@ -29,9 +29,11 @@ def _score_badge(deal: ScoredDeal) -> str:
 def _tier_label(deal: ScoredDeal) -> str:
     if deal.llm and deal.llm.verdict:
         return deal.llm.verdict
-    if deal.is_historical_low or deal.score >= 88:
+    if deal.score >= 90:
+        return "역대급 초특가 대란"
+    if deal.score >= 80 or deal.is_historical_low:
         return "찐할인 역대가급"
-    if deal.score >= 74:
+    if deal.score >= 70:
         return "강력 할인 포착"
     return "인기 핫딜 포착"
 

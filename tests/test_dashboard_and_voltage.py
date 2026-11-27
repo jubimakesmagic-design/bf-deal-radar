@@ -83,7 +83,7 @@ def test_for_the_first_time_triggers_historical_low():
     )
     verify_and_score(deal, cfg, usd_krw_rate=1350.0, now=now)
     assert deal.is_historical_low is True
-    assert deal.score >= 50
+    assert deal.score >= 35
 
 
 def test_dashboard_export_escapes_script_breakout_and_strips_unsafe_urls(tmp_path: Path):

@@ -117,4 +117,4 @@ def test_pipeline_end_to_end_mocked(tmp_path: Path, monkeypatch):
     assert report.raw_count == 1
     assert report.qualified_count == 1
     assert report.notified_count == 1
-    assert report.notified_deals[0].score >= 85
+    assert 80 <= report.notified_deals[0].score < 90

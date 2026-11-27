@@ -45,8 +45,8 @@ class LLMConfig:
 
 @dataclass(slots=True)
 class AppConfig:
-    min_score: int = 66
-    kr_min_score: int = 56
+    min_score: int = 70
+    kr_min_score: int = 70
     max_alerts_per_run: int = 8
     max_age_hours: int = 18
     min_price_usd: float | None = 5.0

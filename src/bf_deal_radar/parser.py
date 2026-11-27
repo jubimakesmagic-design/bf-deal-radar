@@ -492,7 +492,12 @@ _KR_SOLD_OUT_RE = re.compile(
     r"(?:\[\s*(?:종료|품절|마감|끌올종료)\s*\]|\(\s*(?:종료|품절|마감)\s*\)|(?:품절|종료|마감)됨\b|^품절\b)",
     re.IGNORECASE,
 )
-_KR_PCT_RE = re.compile(r"(\d{1,2})\s*%\s*(?:할인|세일|off|특가|적립)?", re.IGNORECASE)
+_KR_PCT_RE = re.compile(r"(\d{1,2})\s*%\s*(?:할인|세일|off|특가|적립|쿠폰|↓)?", re.IGNORECASE)
+_KR_INGREDIENT_PCT_PREFIX_RE = re.compile(
+    r"(?:연육|함량|함유|면|코튼|울|캐시미어|폴리|나일론|알코올|도수|카페인|지방|단백질|"
+    r"천연|국산|국내산|원액|과즙|착즙|순면|유기농|배터리|충전|효율|성분|원유|우유|카카오|다크|초콜릿|과채|농축)\s*$",
+    re.IGNORECASE,
+)
 
 
 def extract_krw_price(title: str, description: str = "") -> int | None:
@@ -531,12 +536,18 @@ def extract_krw_price(title: str, description: str = "") -> int | None:
 
 
 def extract_kr_discount_pct(title: str, description: str = "") -> float | None:
-    """Extract explicit percentage discount from Korean deal title/description (ignoring <10%)."""
+    """Extract explicit percentage discount from Korean deal title/description (ignoring <10% and ingredient %)."""
     text = f"{title} {description[:200]}"
     # Ignore "최대 NN%" marketing banners
     text = re.sub(r"최대\s*\d{1,2}\s*%", " ", text)
-    matches = [int(m.group(1)) for m in _KR_PCT_RE.finditer(text)]
-    valid = [p for p in matches if 10 <= p <= 95]
+    valid: list[int] = []
+    for m in _KR_PCT_RE.finditer(text):
+        before = text[max(0, m.start() - 12) : m.start()]
+        if _KR_INGREDIENT_PCT_PREFIX_RE.search(before):
+            continue
+        pct = int(m.group(1))
+        if 10 <= pct <= 95:
+            valid.append(pct)
     if valid:
         return float(max(valid))
     if "반값" in text:

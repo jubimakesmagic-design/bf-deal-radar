@@ -170,7 +170,7 @@ def test_korean_scoring_cross_community_boost_and_spam_exclusion():
     assert len(clustered) == 1
     scored = verify_and_score(clustered[0], cfg, usd_krw_rate=1350.0, now=now)
     assert scored.excluded_reason is None
-    assert scored.score >= 85
+    assert 60 <= scored.score < 85
     assert any("교차 검증" in r for r in scored.reasons)
 
     # Telegram output has 🇰🇷 badge and Naver/Danawa comparison buttons
@@ -348,7 +348,7 @@ def test_parse_hotgusa_dasaja_eomisae_and_cross_community_dedup():
     scored = verify_and_score(clustered[0], cfg, usd_krw_rate=1350.0, now=now_kst.astimezone(timezone.utc))
     assert any("교차 검증" in r and "다사자" in r and "에펨코리아" in r for r in scored.reasons)
     assert any("커뮤니티 인기(불꽃)" in r for r in scored.reasons)
-    assert scored.score >= 85
+    assert 70 <= scored.score < 85
 
     # Ensure Hotgusa·루리웹 + 루리웹 핫딜 do NOT double-count as 2 distinct communities
     same_comm = ScoredDeal(
@@ -432,3 +432,102 @@ def test_parse_hotgusa_dasaja_eomisae_and_cross_community_dedup():
     assert classify_korean_category("얼라이브 멀티 비타 구미", "멀티비타민") == "🧴 뷰티/건강"
     assert classify_korean_category("타원볼 4P+미니볼 세트", "도자기") == "🏠 생활/주방"
     assert classify_korean_category("아크테릭스 버텍스 알파인", "패션국내") == "👕 패션/잡화"
+
+
+def test_strict_scoring_prevents_inflation_and_blocks_fake_pct():
+    now = datetime.now(timezone.utc)
+    cfg = AppConfig(min_score=70, kr_min_score=70, min_price_krw=3000)
+
+    # Ingredient percentage ("연육80%") must NEVER be misread as 80% discount
+    assert extract_kr_discount_pct("[옥션] 연육80% 부산 봉어묵 2kg") is None
+    assert extract_kr_discount_pct("[쿠팡] 순면 100% 호텔 수건 10장") is None
+
+    # Minor 10% off bottled water even on 2 communities + fire badge must stay well below 70
+    minor_water = ScoredDeal(
+        canonical_key="url:water",
+        primary=RawDeal(
+            source_id="dasaja_coupang",
+            source_name="다사자 쿠팡 핫딜",
+            source_type="dasaja",
+            source_base_score=22,
+            category_hint="국내핫딜",
+            external_id="w1",
+            title="[쿠팡] 아쿠아시스 무라벨 생수 2L 24개",
+            url="https://dasaja.co.kr/saja_korea/1",
+            region="KR",
+            description="최근 6개월 평균가 대비 10% 저렴 (역대 최저가, 비교 8건)",
+            published_at=now,
+            retailer="쿠팡",
+            price_krw=9980,
+            shipping_label="무료배송",
+            discount_pct=10.0,
+            thumb_score=4,
+            staff_pick=True,
+        ),
+        merged_sources=["다사자 쿠팡 핫딜", "핫구사·에펨코리아"],
+    )
+    verify_and_score(minor_water, cfg, usd_krw_rate=1350.0, now=now)
+    assert minor_water.score < 55
+
+    # Inflated store-banner multi-item range promo ("모음전 8,900원~ (74%)") stays below 70
+    banner = ScoredDeal(
+        canonical_key="url:banner",
+        primary=RawDeal(
+            source_id="dasaja_best",
+            source_name="다사자 BEST 핫딜",
+            source_type="dasaja",
+            source_base_score=20,
+            category_hint="생활용품",
+            external_id="b1",
+            title="[오늘의집] 빠른배송! 우드레이 BEST상품 모음전 8,900원~ (74%)",
+            url="https://dasaja.co.kr/saja_korea/2",
+            region="KR",
+            published_at=now,
+            retailer="오늘의집",
+            price_krw=8900,
+            shipping_label="무료배송",
+            discount_pct=74.0,
+            thumb_score=3,
+            staff_pick=True,
+        ),
+        merged_sources=["다사자 BEST 핫딜"],
+    )
+    verify_and_score(banner, cfg, usd_krw_rate=1350.0, now=now)
+    assert banner.score < 55
+
+    # Single-community 50% viral deal reaches 80-89 (rarely 90+ unless cross-verified!)
+    viral_single = ScoredDeal(
+        canonical_key="url:br1",
+        primary=RawDeal(
+            source_id="hotgusa_lowest",
+            source_name="핫구사·아카라이브",
+            source_type="hotgusa",
+            source_base_score=18,
+            category_hint="국내핫딜",
+            external_id="br1",
+            title="배스킨라빈스 쿼터 50%할인",
+            url="https://www.hotgusa.com/product/8_190374645",
+            region="KR",
+            description="최근 12개월 평균가 대비 35% 저렴 (역대 최저가, 비교 16건)",
+            published_at=now,
+            retailer="토스쇼핑",
+            price_krw=9900,
+            shipping_label="무료배송",
+            discount_pct=50.0,
+            thumb_score=23,
+            comment_count=57,
+            view_count=8158,
+        ),
+        merged_sources=["핫구사·아카라이브"],
+    )
+    verify_and_score(viral_single, cfg, usd_krw_rate=1350.0, now=now)
+    assert 80 <= viral_single.score < 90
+
+    # Same 50% viral mega-deal confirmed on 2 communities crosses 90+!
+    viral_cross = ScoredDeal(
+        canonical_key="url:br2",
+        primary=viral_single.primary,
+        merged_sources=["핫구사·아카라이브", "핫구사·에펨코리아"],
+    )
+    verify_and_score(viral_cross, cfg, usd_krw_rate=1350.0, now=now)
+    assert viral_cross.score >= 90
